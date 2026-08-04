@@ -1,0 +1,127 @@
+import numpy as np
+import pytest
+
+from obscalc.webapi import (
+    MAX_NEGATIVE_COUNTS,
+    NO_OVERLAP_MESSAGE,
+    calculate,
+    empty_payload,
+)
+
+# The keys s2n_param.parse_return() left in its output dictionary.  The web UI
+# and csv_gen.py read these, so the set must not shrink.
+PARSE_RETURN_KEYS = {
+    "wave",
+    "s2n",
+    "obj",
+    "objperwavesec",
+    "noise",
+    "sky",
+    "cts",
+    "js2n",
+    "jobj",
+    "jnoise",
+    "jsky",
+    "com",
+    "dich",
+    "msg",
+    "errormsg",
+    "i2counts",
+    "exp",
+    "precision",
+}
+
+GOOD_REQUEST = {
+    "mag": "9.0",
+    "mtype": "1",
+    "seeing": "1.2",
+    "airmass": "1.1",
+    "exptime": "600",
+    "binning": "1x1",
+    "slitwidth": "N",
+    "template": "G5V_pickles_27.fits",
+    "ffilter": "Buser_V.dat",
+    "redshift": "0.0",
+}
+
+
+def test_empty_payload_has_the_expected_keys():
+    assert set(empty_payload()) == PARSE_RETURN_KEYS
+
+
+def test_a_good_request_fills_every_series():
+    payload = calculate(GOOD_REQUEST)
+    assert set(payload) == PARSE_RETURN_KEYS
+    assert payload["msg"] == ""
+    assert payload["errormsg"] == ""
+
+    n = len(payload["wave"])
+    assert n > 100
+    for key in ("s2n", "obj", "sky", "noise"):
+        assert len(payload[key]) == n
+        assert all(len(pair) == 2 for pair in payload[key])
+        assert len(payload["j" + key]) == n
+        # The pair lists carry [wavelength, value]; the j-lists just the value.
+        assert payload[key][0][1] == payload["j" + key][0]
+    assert all(len(row) == 5 for row in payload["cts"])
+    assert len(payload["cts"]) == n
+
+
+def test_noise_is_broadcast_as_a_constant():
+    payload = calculate(GOOD_REQUEST)
+    assert len(set(payload["jnoise"])) == 1
+
+
+def test_extras_are_reported():
+    payload = calculate(GOOD_REQUEST)
+    assert payload["i2counts"] > 0
+    assert payload["exp"] > 0
+    assert payload["precision"] > 0
+
+
+def test_values_are_plain_floats_for_json():
+    payload = calculate(GOOD_REQUEST)
+    assert isinstance(payload["wave"][0], float)
+    assert isinstance(payload["js2n"][0], float)
+    assert not isinstance(payload["js2n"][0], np.floating)
+
+
+def test_string_defaults_apply_when_parameters_are_missing():
+    payload = calculate({})
+    assert payload["msg"] == ""
+    assert len(payload["wave"]) > 100
+    # No template, so no colour-dependent quantities.
+    assert payload["precision"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "override,expected",
+    [
+        ({"mag": "bright"}, "Mag"),
+        ({"seeing": "-1"}, "Seeing"),
+        ({"exptime": "0"}, "Exp. time"),
+        ({"mtype": "7"}, "Mag. Type"),
+        ({"binning": "nonsense"}, "CCD Binning"),
+        ({"slitwidth": "Z"}, "Slitwidth"),
+    ],
+)
+def test_bad_parameters_are_reported_without_calculating(override, expected):
+    payload = calculate({**GOOD_REQUEST, **override})
+    assert expected in payload["msg"]
+    assert payload["wave"] == []
+
+
+def test_template_without_a_filter_is_rejected():
+    payload = calculate({**GOOD_REQUEST, "ffilter": ""})
+    assert "filter" in payload["msg"]
+
+
+def test_a_template_redshifted_off_the_filter_sets_errormsg():
+    payload = calculate({**GOOD_REQUEST, "redshift": "5.0"})
+    assert payload["errormsg"] == NO_OVERLAP_MESSAGE
+    assert payload["msg"] == ""
+    assert payload["wave"] == []
+
+
+def test_negative_count_threshold_is_the_one_bad_obj_used():
+    assert MAX_NEGATIVE_COUNTS == 5

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "obscalc"
+version = "0.1.0"
+description = "Signal-to-noise calculator for slit spectrographs, ported from the xidl IDL exposure-time code"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.22",
+    "scipy>=1.7",
+    "astropy>=5.0",
+    "matplotlib>=3.5",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[project.scripts]
+obscalc = "obscalc.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["obscalc*"]
+
+[tool.setuptools.package-data]
+obscalc = [
+    "data/extinction/*.dat",
+    "data/sky/*.fits*",
+    "data/thruput/*.fits*",
+    "data/filters/*.dat",
+    "data/templates/*.fits*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
