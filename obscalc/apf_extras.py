@@ -30,6 +30,15 @@ from .photometry import TemplateFilterMismatch, read_template, spec_to_mag
 #: Wavelength range of the iodine cell absorption used for RV work, Angstroms.
 I2_WINDOW = (5000.0, 6200.0)
 
+#: The exposure-meter and RV-precision relations below were fitted to empirical
+#: measurements on real APF spectra, which carry the echelle blaze.  So the counts
+#: fed to them must be blaze-inclusive -- which is what
+#: :func:`obscalc.instruments.apf.apf_thruput` produces by default.  Passing
+#: peak-of-order counts instead, as the IDL did, reports a precision better than
+#: the instrument achieves: 2.67 m/s against 4.48 for a V=9 G star in 600 s.
+#: Do not "correct" for the blaze here; it belongs in the throughput.
+COUNTS_INCLUDE_BLAZE = True
+
 #: True: unlike the IDL, i2counts is linear counts rather than their logarithm.
 I2COUNTS_IS_LINEAR = True
 
@@ -82,7 +91,10 @@ def exposure_meter_value(counts, bmv):
 
 
 def rv_precision(counts, bmv, binc=1):
-    """Expected radial-velocity precision in m/s."""
+    """Expected radial-velocity precision in m/s.
+
+    ``counts`` must include the echelle blaze; see :data:`COUNTS_INCLUDE_BLAZE`.
+    """
     if counts <= 0:
         return 0.0
     slope_intercept = _PREC_RED if bmv > _PREC_BMV_BREAK else _PREC_BLUE

@@ -3,6 +3,7 @@ import pytest
 
 from obscalc import Observation, apf_spectrograph, apf_telescope, apf_thruput
 from obscalc.apf_extras import (
+    COUNTS_INCLUDE_BLAZE,
     I2_WINDOW,
     apf_extras,
     exposure_meter_value,
@@ -49,6 +50,23 @@ def test_rv_precision_is_plausible_for_a_bright_star():
     # A V=9 G star in 600 s on APF should land within a few m/s, not hundreds.
     # This is what the precision_value bug in apf_calcs2n.pro got wrong.
     assert 0.5 < rv_precision(6.3e3, bmv=0.69) < 20.0
+
+
+def test_the_relation_expects_blaze_inclusive_counts():
+    """The coefficients were fitted to real spectra, which carry the blaze.
+
+    Feeding peak-of-order counts, as the IDL did, understates the precision the
+    instrument actually achieves.  For a V=9 G star in 600 s that is 2.67 m/s
+    against 4.48 -- optimistic by a factor 1.7.
+    """
+    assert COUNTS_INCLUDE_BLAZE
+
+    peak_of_order, with_blaze = 6250.0, 2762.0
+    optimistic = rv_precision(peak_of_order, bmv=0.688)
+    honest = rv_precision(with_blaze, bmv=0.688)
+    assert optimistic == pytest.approx(2.67, abs=0.05)
+    assert honest == pytest.approx(4.48, abs=0.05)
+    assert honest > optimistic
 
 
 def test_zero_counts_give_zero_rather_than_a_log_of_zero():

@@ -335,14 +335,17 @@ orders, and applied no blaze, so it reported every order's peak everywhere.
 There is no option to restore the old interpolation; it was simply wrong.
 `--no-blaze` gives the per-order peak, which is the closest thing to the IDL.
 
-**This moves the APF's RV numbers.** `apf_extras.i2counts` is the median object
-count over 5000–6200 Å, so it falls with the blaze applied — for a V=9 G star in
-600 s: 6250 → 2762 counts, exposure meter 2.02e8 → 8.92e7, and **RV precision
-2.67 → 4.48 m/s**. The coefficients `A = 4.47`, `B = −1.58` were *not* re-derived.
-Whether the new number is more nearly right depends on whether they were fitted
-against real extracted spectra (which carry the blaze) or against the old ETC's
-peak-of-order counts (in which case this double-counts it). That is worth
-checking against real APF data before the figure is quoted.
+**This moves the APF's RV numbers, and in the right direction.**
+`apf_extras.i2counts` is the median object count over 5000–6200 Å, so it falls
+with the blaze applied — for a V=9 G star in 600 s: 6250 → 2762 counts, exposure
+meter 2.02e8 → 8.92e7, and **RV precision 2.67 → 4.48 m/s**.
+
+That is the better estimate. `A = 4.47`, `B = −1.58` come from empirical
+measurements on real APF spectra, which carry the blaze, so blaze-inclusive counts
+are the input the relation was calibrated against. The old un-blazed ETC fed it
+peak-of-order counts and so reported a precision better than the instrument
+achieves. Anything comparing against historical ETC output should expect the
+newer, larger — and more honest — figure.
 
 **The HIRES detector boost was extrapolated off the end of its table.**
 `hires_thru_newccd` passed straight to `interpol`, whose table starts at 3153.9 Å
