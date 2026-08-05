@@ -10,6 +10,7 @@ Supported instruments:
 | --- | --- | --- | --- |
 | Levy | APF 2.4 m | one | `obscalc-apf` (also `obscalc`) |
 | Kast | Shane 3 m, Lick | two, split by a dichroic | `obscalc-kast` |
+| HIRES | Keck I 10 m | one, cross-dispersed echelle | `obscalc-hires` |
 
 The engine is generic; everything named `apf_*` or `kast_*` is not. `s2n.py`,
 `slit.py`, `photometry.py`, `idl_compat.py`, `structures.py`, `cli_common.py`,
@@ -129,6 +130,55 @@ G1 has a resolving power in `x_initkast.pro` but no throughput measurement at
 all, so `kast_thruput.pro` hit an `else: stop` for the very grism
 `x_initkast.pro` defaulted to. It is not offered here.
 
+### HIRES
+
+```sh
+obscalc-hires --mag 15 --mtype 2 --exptime 1800 --decker C5 --epoch new
+```
+
+```
+3000-9500 A: R = 216000, 6.40 pixels across the slit, 18 rows extracted, ...
+  slit transmission 0.8421, read noise 6.60 e-, dark 9.00 e-
+  median S/N 40.50 per binned pixel, 102.47 per resolution element
+
+Echelle orders 37-118 across the range; free spectral range 25.6-260.3 A
+Cross-disperser: blue setting below 3790 A, red above
+```
+
+HIRES is where the throughput stops being a measured curve and becomes a model,
+which is what `hires_thruput.pro` does and what makes it unlike the others:
+
+1. The echelle order containing a wavelength is `m = long(MLAMBDA / wave)`, with
+   blaze centre `MLAMBDA / m` and free spectral range `centre / m` — 25 Å wide at
+   3000 Å, 260 Å at 9500 Å.
+2. Throughput is read from a table **at the order centre, not at the
+   wavelength**, so it is constant across each order. Since the centre is the
+   blaze peak, the result is a best-case value within the order.
+3. Which of two tabulated cross-disperser curves applies depends on the order
+   centre: the blue setting below 3800 Å, the red above.
+4. **`--blaze` applies the blaze function** `(sin γ / γ)²`. It is off by default,
+   because `hires_calcs2n.pro` passed `BLAZE=blaze` with `blaze` undefined —
+   which leaves `keyword_set(BLAZE)` false in IDL — and for the newer detector did
+   not pass it at all. Turning it on drops the median throughput to 0.40 of the
+   peak value and makes the order structure visible.
+
+`--decker` is a name (`B2 B5 C1 C5 D1 D3 E4 E5`), as for APF, not a width in
+arcsec as for Kast. `--epoch` selects the detector:
+
+| Epoch | Pixels | R | Read noise | Dark |
+| --- | --- | --- | --- | --- |
+| `old` | 24 µm | 135000 | 4.3 e⁻ | 2.0 e⁻/px/hr |
+| `new` (default) | 15 µm | 216000 | 2.2 e⁻ | 1.0 e⁻/px/hr |
+
+Comparing epochs by per-pixel S/N is misleading. The newer detector has 1.29×
+the throughput, but its smaller pixels raise R and so cover 0.625× the wavelength
+per pixel — a net 11% loss per pixel and a 13% gain per resolution element. The
+default binning is `2x1`, matching `x_inithires.pro`.
+
+`x_inithires.pro` defines a third configuration, `flg = 3`, for MTHR on the TMT.
+That is a different instrument on a different telescope with its own throughput
+routine (`mthr_thruput.pro`) and is not ported.
+
 ### Looking at plots
 
 Either add `--plot out.png` to any run, or generate a representative set:
@@ -139,8 +189,9 @@ python scripts/make_plots.py /tmp/figs  # or somewhere else
 open plots/                             # macOS
 ```
 
-That writes seven figures: three APF configurations, three Kast ones (including
-`G3 + d55`, where the throughput dead zone is obvious), and the Mauna Kea
+That writes ten figures: three APF configurations, three Kast ones (including
+`G3 + d55`, where the throughput dead zone is obvious), three HIRES ones (a
+blaze on/off pair, where the echelle order structure shows), and the Mauna Kea
 sky-model diagnostic from `plots.sky_models_figure`, which shows the recovered
 LRIS red channel lying on top of the independent DEIMOS measurement.
 
@@ -259,6 +310,12 @@ summed across their overlap — which is why it returned about −19 AB mag/arcs
 Rather than rescale detected counts per configuration, the throughput is undone
 to recover a true surface brightness, which is what the engine wants and what any
 instrument can then use. See below for how well that works.
+
+**The HIRES detector boost was extrapolated off the end of its table.**
+`hires_thru_newccd` passed straight to `interpol`, whose table starts at 3153.9 Å
+while HIRES is used from 3000 Å. Continuing the first interval trebles the boost
+to 32.8 by 3000 Å, turning a 0.3% throughput into 9.8%. A quantum efficiency
+ratio cannot be extrapolated that way, so the end values are held instead.
 
 **Kast's per-detector read noise was clobbered.** `x_initkast.pro` says 3.7
 electrons for the blue detector and 3.8 for the red, but wrote
@@ -394,19 +451,19 @@ accepts a `phase` argument and ignores it, exactly as the IDL did.
 
 ## Scope
 
-Two instruments: APF and Kast, both at Mt Hamilton using `mtham_trans` and
-`mtham_sky`.
-
-Four sites are supported for extinction and sky — APF, Lick-3m, Keck I and
-Keck II — so the Mauna Kea groundwork for the remaining Keck instruments (LRIS,
-ESI, DEIMOS, HIRES) is in place and tested, with usable sky coverage from 3102 to
-9999 Å. `atmosphere.extinction_for` and `sky.sky_for` raise `NotImplementedError`
-for any other telescope rather than quietly substituting the wrong site.
+Three instruments: APF and Kast at Mt Hamilton, HIRES on Keck I. All four
+supported sites — APF, Lick-3m, Keck I and Keck II — have extinction and sky
+models, with usable Mauna Kea sky coverage from 3102 to 9999 Å.
+`atmosphere.extinction_for` and `sky.sky_for` raise `NotImplementedError` for any
+other telescope rather than quietly substituting the wrong site.
 
 `sky_for` takes an instrument name as well as a telescope, mirroring the nested
 `case str_instr.name` inside `spec_calcs2n.pro`'s Keck II branch, because Keck
 chose its sky model per instrument.
 
-What each Keck instrument still needs: its `x_init*` definition, its `*_thruput`
-curve and sensitivity files, a `Backend`, and a CLI module. LRIS is the most
-involved — `lris_thruput.pro` branches on both dichroic and grating.
+Still unported, all on Keck II and so needing no new site work: LRIS, ESI and
+DEIMOS. Each needs its `x_init*` definition, its `*_thruput` curve and
+sensitivity files, a `Backend`, and a CLI module. ESI and DEIMOS look
+straightforward; LRIS is the involved one, since `lris_thruput.pro` branches on
+both dichroic and grating and it is two-channel like Kast. MTHR (`flg = 3` in
+`x_inithires.pro`) is on the TMT and would need a new telescope and site.

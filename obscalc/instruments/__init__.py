@@ -2,6 +2,8 @@
 
 from .apf import DECKERS, APFBackend, apf_spectrograph, apf_thruput
 from .base import Backend, ParameterError
+from .hires import EPOCHS, HiresBackend, hires_spectrograph, hires_thruput
+from .hires import DECKERS as HIRES_DECKERS
 from .kast import (
     DICHROICS,
     GRATINGS,
@@ -15,6 +17,7 @@ from .kast import (
 #: Registering a new instrument here is all :mod:`obscalc.webapi` needs.
 BACKENDS = {
     "apf": APFBackend(),
+    "hires": HiresBackend(),
     "kast": KastBackend(),
 }
 
@@ -39,14 +42,19 @@ __all__ = [
     "Backend",
     "DECKERS",
     "DICHROICS",
+    "EPOCHS",
     "GRATINGS",
     "GRISMS",
+    "HIRES_DECKERS",
+    "HiresBackend",
     "KastBackend",
     "ParameterError",
     "apf_spectrograph",
     "apf_thruput",
     "available_instruments",
     "get_backend",
+    "hires_spectrograph",
+    "hires_thruput",
     "kast_spectrograph",
     "kast_thruput",
 ]

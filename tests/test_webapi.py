@@ -131,7 +131,7 @@ def test_negative_count_threshold_is_the_one_bad_obj_used():
 # --- instrument dispatch -------------------------------------------------
 
 
-@pytest.mark.parametrize("inst", ["lris", "esi", "deimos", "hires"])
+@pytest.mark.parametrize("inst", ["lris", "esi", "deimos"])
 def test_unported_instruments_are_refused_not_answered_with_apf(inst):
     """The web forms post `inst`; returning APF numbers for LRIS would be wrong.
 
@@ -159,7 +159,7 @@ def test_instrument_name_is_case_and_space_insensitive():
 def test_registered_instruments_are_what_the_package_supports():
     from obscalc.instruments import available_instruments
 
-    assert available_instruments() == ["apf", "kast"]
+    assert available_instruments() == ["apf", "hires", "kast"]
 
 
 def test_backend_owns_the_slitwidth_semantics():
@@ -259,6 +259,53 @@ def test_kast_accepts_a_numeric_slitwidth_that_apf_would_reject():
     # The same value means different things per instrument.
     assert calculate({**KAST_REQUEST, "slitwidth": "1.0"})["msg"] == ""
     assert "Slitwidth" in calculate({**GOOD_REQUEST, "slitwidth": "1.0"})["msg"]
+
+
+HIRES_REQUEST = {
+    "inst": "hires",
+    "mag": "15.0",
+    "mtype": "2",
+    "seeing": "0.7",
+    "airmass": "1.1",
+    "exptime": "1800",
+    "binning": "2x1",
+    "slitwidth": "C5",
+    "redshift": "0.0",
+}
+
+
+def test_hires_request_fills_the_same_payload_shape():
+    payload = calculate(HIRES_REQUEST)
+    assert set(payload) == PARSE_RETURN_KEYS
+    assert payload["msg"] == ""
+    assert payload["errormsg"] == ""
+    n = len(payload["wave"])
+    assert n == 651  # 3000-9500 A at 10 A
+    assert np.all(np.isfinite(payload["js2n"]))
+    assert payload["i2counts"] is None  # no iodine cell
+
+
+def test_hires_slitwidth_is_a_decker_like_apf_not_a_width_like_kast():
+    assert calculate({**HIRES_REQUEST, "slitwidth": "D1"})["msg"] == ""
+    payload = calculate({**HIRES_REQUEST, "slitwidth": "1.0"})
+    assert "Decker" in payload["msg"]
+    assert payload["wave"] == []
+
+
+def test_hires_epoch_can_be_selected():
+    assert calculate({**HIRES_REQUEST, "epoch": "old"})["msg"] == ""
+    assert "Epoch" in calculate({**HIRES_REQUEST, "epoch": "ancient"})["msg"]
+
+
+def test_hires_blaze_flag_lowers_the_counts():
+    plain = np.array(calculate(HIRES_REQUEST)["jobj"])
+    blazed = np.array(calculate({**HIRES_REQUEST, "blaze": "true"})["jobj"])
+    assert np.median(blazed) < np.median(plain)
+
+
+def test_hires_read_noise_is_a_single_value():
+    # One detector, unlike Kast.
+    assert len(set(np.round(calculate(HIRES_REQUEST)["jnoise"], 6))) == 1
 
 
 def test_kast_template_run():

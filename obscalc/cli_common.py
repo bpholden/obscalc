@@ -141,7 +141,14 @@ def results_table(result):
 DEAD_THRUPUT = 1e-4
 
 
-def dead_ranges(result, floor=DEAD_THRUPUT):
+#: Ignore dead runs shorter than this many samples.  An echelle blaze function
+#: has a true zero at each order edge, one or two grid points wide, which is
+#: physics rather than a gap in the calibration; a configuration that has outrun
+#: its throughput measurement goes dead over far more than that.
+MIN_DEAD_SAMPLES = 3
+
+
+def dead_ranges(result, floor=DEAD_THRUPUT, min_samples=MIN_DEAD_SAMPLES):
     """Contiguous wavelength ranges where the throughput is effectively zero.
 
     These arise where a configuration reaches past its throughput measurement.
@@ -156,7 +163,9 @@ def dead_ranges(result, floor=DEAD_THRUPUT):
     starts = np.r_[index[0], index[breaks + 1]]
     ends = np.r_[index[breaks], index[-1]]
     return [
-        (float(result.wave[s]), float(result.wave[e])) for s, e in zip(starts, ends)
+        (float(result.wave[s]), float(result.wave[e]))
+        for s, e in zip(starts, ends)
+        if e - s + 1 >= min_samples
     ]
 
 

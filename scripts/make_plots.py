@@ -22,10 +22,12 @@ from obscalc.instruments.kast import (
     kast_thruput,
     split_wavelengths,
 )
+from obscalc.instruments.hires import DEFAULT_RANGE as HIRES_RANGE
+from obscalc.instruments.hires import hires_spectrograph, hires_thruput
 from obscalc.plots import save_qa_figure, save_sky_models_figure
 from obscalc.s2n import Side, run_sides
 from obscalc.structures import Observation
-from obscalc.telescopes import apf_telescope, lick_telescope
+from obscalc.telescopes import apf_telescope, keck_telescope, lick_telescope
 
 #: APF cases: (filename stem, decker, binning, magnitude, system, seconds).
 APF_CASES = [
@@ -41,6 +43,15 @@ KAST_CASES = [
     # The poor pairing: G3 is measured only to 4429 A, so d55 leaves a wide
     # dead zone.  Worth seeing next to the one above.
     ("kast-G3-d55-mag18", "G3", "d55", 1.5, 18.0, 2, 1800.0),
+]
+
+#: HIRES cases: (stem, decker, epoch, blaze, magnitude, system, seconds).  The
+#: blaze pair is worth comparing: without it the throughput is the peak value
+#: within each echelle order, with it the sinc^2 falloff to the order edges shows.
+HIRES_CASES = [
+    ("hires-C5-new-mag15", "C5", "new", False, 15.0, 2, 1800.0),
+    ("hires-C5-new-mag15-blaze", "C5", "new", True, 15.0, 2, 1800.0),
+    ("hires-C1-old-mag12", "C1", "old", False, 12.0, 2, 1800.0),
 ]
 
 
@@ -73,6 +84,18 @@ def kast_figure(outdir, stem, grism, dichroic, slit, mag, mtype, exptime):
     return save_qa_figure(outdir / f"{stem}.png", result, blue, obs)
 
 
+def hires_figure(outdir, stem, decker, epoch, blaze, mag, mtype, exptime):
+    wave = wavelength_grid(*HIRES_RANGE, 10.0)
+    tel = keck_telescope("KeckI")
+    instr = hires_spectrograph(decker=decker, epoch=epoch, str_tel=tel)
+    obs = Observation(seeing=0.7, mstar=mag, mtype=mtype, exptime=exptime)
+    thru = hires_thruput(wave, instr, blaze=blaze)
+    result = run_sides(
+        wave, tel, [Side("", instr, np.arange(wave.size), thru)], obs
+    )
+    return save_qa_figure(outdir / f"{stem}.png", result, instr, obs)
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     outdir = Path(argv[0] if argv else "plots")
@@ -83,6 +106,8 @@ def main(argv=None):
         written.append(apf_figure(outdir, *case))
     for case in KAST_CASES:
         written.append(kast_figure(outdir, *case))
+    for case in HIRES_CASES:
+        written.append(hires_figure(outdir, *case))
 
     for path in written:
         print(path)
