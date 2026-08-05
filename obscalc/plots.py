@@ -141,3 +141,95 @@ def save_qa_figure(path, result, instr, obs, title=None, dpi=110):
     fig = qa_figure(result, instr, obs, title=title)
     fig.savefig(path, dpi=dpi)
     return path
+
+
+def _thick_legend(ax, **kwargs):
+    """Legend whose colour swatches are readable when the traces are hairlines."""
+    legend = ax.legend(**kwargs)
+    for line in legend.get_lines():
+        line.set_linewidth(2.0)
+    return legend
+
+
+def sky_models_figure():
+    """The Mauna Kea sky models, per source and combined.
+
+    Documents the LRIS recovery described in :mod:`obscalc.sky`: the top panel
+    shows each measurement separately, so the recovered red channel can be seen
+    lying on top of the independent DEIMOS one, and the bottom shows the
+    combined default against Mt Hamilton for scale.
+    """
+    import matplotlib.pyplot as plt
+
+    from .sky import (
+        _DEIMOS600_MIN,
+        _LRIS_BLUE_MAX,
+        RED_VALIDATION,
+        coverage,
+        maunakea_sky,
+        mtham_sky,
+    )
+
+    fig, axes = plt.subplots(2, 1, figsize=(11, 8), sharex=True)
+
+    sources = [
+        ("lris_blue", "tab:blue", "recovered from LRIS blue"),
+        ("deimos600", "tab:orange", "DEIMOS 600"),
+        ("lris_red", "tab:green", "recovered from LRIS red"),
+    ]
+    for name, colour, label in sources:
+        low, high = coverage(name)
+        wave = np.arange(low, high, 2.0)
+        axes[0].plot(
+            wave,
+            maunakea_sky(wave, model=name),
+            colour,
+            lw=0.7,
+            label=f"{label}  ({low:.0f}-{high:.0f} A)",
+        )
+    axes[0].set_title(
+        "Mauna Kea sky per source -- red overlays DEIMOS to "
+        f"{RED_VALIDATION[0]:+.2f} mag, which validates undoing the throughput"
+    )
+    _thick_legend(axes[0], fontsize=8, ncol=2, loc="lower right")
+
+    wave = np.arange(*coverage("combined"), 2.0)
+    axes[1].plot(wave, maunakea_sky(wave), "k", lw=0.7, label="combined (default)")
+    axes[1].plot(
+        wave, mtham_sky(wave), "tab:red", lw=0.6, alpha=0.7, label="Mt Hamilton"
+    )
+    axes[1].set_title("Combined model, with Mt Hamilton for scale")
+    _thick_legend(axes[1], fontsize=8, loc="lower right")
+    axes[1].set_xlabel("wavelength (Angstroms)")
+
+    for ax in axes:
+        ax.axvspan(
+            _LRIS_BLUE_MAX,
+            _DEIMOS600_MIN,
+            color="0.85",
+            zorder=0,
+            label="_nolegend_",
+        )
+        ax.set_ylim(25.0, 16.0)  # brighter upward
+        ax.set_ylabel("AB mag / arcsec$^2$")
+
+    fig.text(
+        0.01,
+        0.005,
+        f"grey band {_LRIS_BLUE_MAX:.0f}-{_DEIMOS600_MIN:.0f} A is measured by "
+        "neither model and is interpolated",
+        fontsize=7,
+        color="0.35",
+    )
+    fig.tight_layout(rect=(0, 0.02, 1, 1))
+    return fig
+
+
+def save_sky_models_figure(path, dpi=110):
+    """Write :func:`sky_models_figure` to ``path``."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    fig = sky_models_figure()
+    fig.savefig(path, dpi=dpi)
+    return path

@@ -129,6 +129,21 @@ G1 has a resolving power in `x_initkast.pro` but no throughput measurement at
 all, so `kast_thruput.pro` hit an `else: stop` for the very grism
 `x_initkast.pro` defaulted to. It is not offered here.
 
+### Looking at plots
+
+Either add `--plot out.png` to any run, or generate a representative set:
+
+```sh
+python scripts/make_plots.py            # writes ./plots (gitignored)
+python scripts/make_plots.py /tmp/figs  # or somewhere else
+open plots/                             # macOS
+```
+
+That writes seven figures: three APF configurations, three Kast ones (including
+`G3 + d55`, where the throughput dead zone is obvious), and the Mauna Kea
+sky-model diagnostic from `plots.sky_models_figure`, which shows the recovered
+LRIS red channel lying on top of the independent DEIMOS measurement.
+
 ## Library
 
 ```python
