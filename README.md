@@ -5,8 +5,15 @@ time calculator in [xidl](https://www.ucolick.org/~xavier/IDL/), whose entry
 point was `Obs/S2N/spec_calcs2n.pro`.
 
 The first supported configuration is the Levy spectrograph on the Automated
-Planet Finder. The engine itself is generic; adding a telescope means adding an
-extinction curve, a sky model and an instrument definition.
+Planet Finder.
+
+The engine is generic; everything named `apf_*` is not. `s2n.py`, `slit.py`,
+`photometry.py`, `idl_compat.py` and `structures.py` know nothing about any
+particular instrument, while `instruments/apf.py`, `apf_extras.py` and
+`apf_cli.py` are APF only, and `atmosphere.py` and `sky.py` hold a registry
+keyed on telescope name. Adding an instrument means a definition and throughput
+curve under `instruments/`, an extinction curve and sky model in those two
+registries, and its own command line module beside `apf_cli.py`.
 
 ## Install
 

@@ -1,4 +1,10 @@
-"""Command line driver, replacing ``apf_calcs2n_wrapper.pro``."""
+"""Command line driver for the APF, replacing ``apf_calcs2n_wrapper.pro``.
+
+Everything here is APF specific: the telescope, the Levy spectrograph, its
+deckers and throughput curve, and the iodine-cell quantities in
+:mod:`obscalc.apf_extras`.  A second instrument wants its own module beside this
+one; :func:`obscalc.s2n.spec_calcs2n` is the part that stays generic.
+"""
 
 import argparse
 import sys

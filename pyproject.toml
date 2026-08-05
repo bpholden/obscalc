@@ -19,7 +19,7 @@ dependencies = [
 test = ["pytest>=7.0"]
 
 [project.scripts]
-obscalc = "obscalc.cli:main"
+obscalc = "obscalc.apf_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["obscalc*"]

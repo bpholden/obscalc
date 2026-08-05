@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from astropy.table import Table
 
-from obscalc.cli import main, results_table, wavelength_grid
+from obscalc.apf_cli import main, results_table, wavelength_grid
 from obscalc.instruments.apf import DECKERS
 
 
