@@ -32,6 +32,7 @@ PARSE_RETURN_KEYS = {
 }
 
 GOOD_REQUEST = {
+    "inst": "apf",
     "mag": "9.0",
     "mtype": "1",
     "seeing": "1.2",
@@ -125,3 +126,59 @@ def test_a_template_redshifted_off_the_filter_sets_errormsg():
 
 def test_negative_count_threshold_is_the_one_bad_obj_used():
     assert MAX_NEGATIVE_COUNTS == 5
+
+
+# --- instrument dispatch -------------------------------------------------
+
+
+@pytest.mark.parametrize("inst", ["kast", "lris", "esi", "deimos", "hires"])
+def test_unported_instruments_are_refused_not_answered_with_apf(inst):
+    """The web forms post `inst`; returning APF numbers for LRIS would be wrong.
+
+    These are all instruments the existing ETC serves through the IDL but that
+    this package has not ported yet.
+    """
+    payload = calculate({**GOOD_REQUEST, "inst": inst})
+    assert inst in payload["msg"]
+    assert "apf" in payload["msg"]
+    assert payload["wave"] == []
+    assert payload["js2n"] == []
+
+
+def test_instrument_defaults_to_apf_when_absent():
+    payload = calculate({key: v for key, v in GOOD_REQUEST.items() if key != "inst"})
+    assert payload["msg"] == ""
+    assert payload["i2counts"] > 0
+
+
+def test_instrument_name_is_case_and_space_insensitive():
+    for spelling in ("APF", " apf ", "Apf"):
+        assert calculate({**GOOD_REQUEST, "inst": spelling})["msg"] == ""
+
+
+def test_registered_instruments_are_what_the_package_supports():
+    from obscalc.instruments import available_instruments
+
+    assert available_instruments() == ["apf"]
+
+
+def test_backend_owns_the_slitwidth_semantics():
+    # For APF slitwidth is a decker letter, so a numeric width is a bad request.
+    payload = calculate({**GOOD_REQUEST, "slitwidth": "1.0"})
+    assert "Slitwidth" in payload["msg"]
+    assert "decker" in payload["msg"]
+
+
+def test_unknown_parameters_are_passed_through_without_complaint():
+    # kast and lris post a dichroic; an APF request carrying stray keys should
+    # still work rather than fail validation.
+    payload = calculate({**GOOD_REQUEST, "dichroic": "d55", "grating": "600/7500"})
+    assert payload["msg"] == ""
+    assert len(payload["wave"]) > 100
+
+
+def test_get_backend_raises_for_an_unported_instrument():
+    from obscalc.instruments import get_backend
+
+    with pytest.raises(NotImplementedError, match="lris"):
+        get_backend("lris")

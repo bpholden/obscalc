@@ -8,12 +8,17 @@ The first supported configuration is the Levy spectrograph on the Automated
 Planet Finder.
 
 The engine is generic; everything named `apf_*` is not. `s2n.py`, `slit.py`,
-`photometry.py`, `idl_compat.py` and `structures.py` know nothing about any
-particular instrument, while `instruments/apf.py`, `apf_extras.py` and
-`apf_cli.py` are APF only, and `atmosphere.py` and `sky.py` hold a registry
-keyed on telescope name. Adding an instrument means a definition and throughput
-curve under `instruments/`, an extinction curve and sky model in those two
-registries, and its own command line module beside `apf_cli.py`.
+`photometry.py`, `idl_compat.py`, `structures.py` and `webapi.py` know nothing
+about any particular instrument, while `instruments/apf.py`, `apf_extras.py` and
+`apf_cli.py` are APF only. Three registries hold the instrument-specific
+knowledge: `atmosphere.EXTINCTION` and `sky.SKY`, keyed on telescope name, and
+`instruments.BACKENDS`, keyed on the `inst` parameter the web forms post.
+
+Adding an instrument means: a definition and throughput curve under
+`instruments/`, a `Backend` subclass (see `instruments/base.py`) registered in
+`BACKENDS`, an extinction curve and sky model in the other two registries, and
+its own command line module beside `apf_cli.py`. No edit to `webapi.py` or
+`s2n.py` should be required.
 
 ## Install
 
@@ -98,8 +103,25 @@ def gen_inst_s2n():
 ```
 
 No subprocess, no `env-for-xidl`, no screen scraping. Parameter validation moves
-into `webapi._coerce`, which reports problems in the same `msg` field the
-existing forms already display.
+into `webapi._coerce` for the parameters every spectrograph shares, and into the
+backend for the rest; both report problems in the same `msg` field the existing
+forms already display.
+
+`calculate` dispatches on `inst`, defaulting to `apf`. Because only APF is
+ported, a request naming any of the other instruments the ETC serves
+(`kast`, `lris`, `esi`, `deimos`, `hires`) is **refused** with a message rather
+than silently answered with APF numbers:
+
+```python
+calculate({"inst": "lris", ...})["msg"]
+# "Unknown instrument 'lris'. This calculator serves apf."
+```
+
+Parameters a backend does not recognise are passed through untouched, so a form
+that posts a `dichroic` or `grating` will not fail validation. Note that
+`slitwidth` means different things per instrument — a decker letter for APF and
+HIRES, a width in arcsec for kast, lris, esi and deimos — which is why it is the
+backend's business and not `webapi`'s.
 
 ## Differences from the IDL
 

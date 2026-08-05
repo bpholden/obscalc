@@ -14,16 +14,19 @@ Keys, all as in the original: ``wave`` is a list of floats; ``s2n``, ``obj``,
 plain-value twins; ``cts`` is a list of
 ``[wavelength, obj, sky, noise, s2n]`` rows; ``msg`` reports a bad request and
 ``errormsg`` a bad result.
+
+Nothing here is instrument specific.  The ``inst`` parameter selects a backend
+from :data:`obscalc.instruments.BACKENDS`, which owns the parameters only that
+spectrograph understands.  Only ``apf`` is registered so far; any other value is
+refused rather than quietly answered with APF numbers.
 """
 
 import numpy as np
 
-from .apf_extras import apf_extras
-from .instruments.apf import DECKERS, apf_spectrograph, apf_thruput
+from .instruments import BACKENDS, ParameterError, get_backend
 from .photometry import TemplateFilterMismatch
 from .s2n import spec_calcs2n
 from .structures import Observation, parse_binning
-from .telescopes import apf_telescope
 
 #: Wording the existing web UI shows for a template/filter that do not overlap.
 NO_OVERLAP_MESSAGE = (
@@ -35,7 +38,13 @@ NO_OVERLAP_MESSAGE = (
 #: ``s2n_param.bad_obj`` used the same threshold.
 MAX_NEGATIVE_COUNTS = 5
 
+#: Instrument served when a request does not say.
+DEFAULT_INSTRUMENT = "apf"
+
+# Parameters every spectrograph shares.  Anything else in the request -- a
+# dichroic, a grating, a decker letter -- belongs to a backend.
 _DEFAULTS = {
+    "inst": DEFAULT_INSTRUMENT,
     "mag": 17.0,
     "mtype": 1,
     "seeing": 1.2,
@@ -43,9 +52,16 @@ _DEFAULTS = {
     "exptime": 3600.0,
     "redshift": 0.0,
     "binning": "1x1",
-    "slitwidth": "W",
     "template": "",
     "ffilter": "",
+}
+
+_NUMERIC_LABELS = {
+    "mag": "Mag",
+    "seeing": "Seeing",
+    "airmass": "Airmass",
+    "exptime": "Exp. time",
+    "redshift": "Redshift",
 }
 
 
@@ -73,52 +89,56 @@ def empty_payload():
     }
 
 
+def _bad(label):
+    return f"Inappropriate value for the input parameter {label}"
+
+
 def _coerce(params):
-    """Validate and type the request parameters.
+    """Validate and type the instrument-independent parameters.
 
     Returns ``(values, msg)``; a non-empty ``msg`` means do not calculate, which
-    is the same contract ``build_exec_str`` had.
+    is the same contract ``build_exec_str`` had.  Parameters this function does
+    not recognise are passed through untouched for the backend to interpret.
     """
-    values = dict(_DEFAULTS)
-    for key in values:
-        if key in params and str(params[key]).strip():
-            values[key] = str(params[key]).strip()
-
-    numeric = {
-        "mag": "Mag",
-        "seeing": "Seeing",
-        "airmass": "Airmass",
-        "exptime": "Exp. time",
-        "redshift": "Redshift",
+    values = {
+        key: str(value).strip()
+        for key, value in params.items()
+        if str(value).strip() != ""
     }
-    for key, label in numeric.items():
+    for key, default in _DEFAULTS.items():
+        values.setdefault(key, default)
+
+    for key, label in _NUMERIC_LABELS.items():
         try:
             values[key] = float(values[key])
         except (TypeError, ValueError):
-            return None, f"Inappropriate value for the input parameter {label}"
+            return None, _bad(label)
 
     try:
         values["mtype"] = int(values["mtype"])
     except (TypeError, ValueError):
-        return None, "Inappropriate value for the input parameter Mag. Type"
+        return None, _bad("Mag. Type")
     if values["mtype"] not in (1, 2):
-        return None, "Inappropriate value for the input parameter Mag. Type"
+        return None, _bad("Mag. Type")
 
     try:
-        parse_binning(values["binning"])
+        values["bins"], values["bind"] = parse_binning(values["binning"])
     except ValueError:
-        return None, "Inappropriate value for the input parameter CCD Binning"
-
-    if values["slitwidth"] not in DECKERS:
-        return None, "Inappropriate value for the input parameter Slitwidth"
+        return None, _bad("CCD Binning")
 
     if values["seeing"] <= 0:
-        return None, "Inappropriate value for the input parameter Seeing"
+        return None, _bad("Seeing")
     if values["exptime"] <= 0:
-        return None, "Inappropriate value for the input parameter Exp. time"
+        return None, _bad("Exp. time")
 
     if bool(values["template"]) != bool(values["ffilter"]):
         return None, "A template requires a filter to normalise it, and vice versa"
+
+    if str(values["inst"]).strip().lower() not in BACKENDS:
+        return None, (
+            f"Unknown instrument {values['inst']!r}. This calculator serves "
+            f"{', '.join(sorted(BACKENDS))}."
+        )
 
     return values, ""
 
@@ -128,11 +148,13 @@ def _pairs(wave, values):
 
 
 def calculate(params, wvmn=None, wvmx=None, dwv=10.0):
-    """Run an APF calculation for a web request.
+    """Run a calculation for a web request.
 
-    ``params`` is any mapping using the keys the existing forms post: ``mag``,
-    ``mtype``, ``seeing``, ``airmass``, ``exptime``, ``redshift``, ``binning``,
-    ``slitwidth`` (an APF decker letter), ``template`` and ``ffilter``.
+    ``params`` is any mapping using the keys the existing forms post. Common to
+    every instrument: ``inst``, ``mag``, ``mtype``, ``seeing``, ``airmass``,
+    ``exptime``, ``redshift``, ``binning``, ``template``, ``ffilter``. Anything
+    else is the selected backend's business -- for APF that is ``slitwidth``,
+    which is a decker letter.
     """
     payload = empty_payload()
 
@@ -141,11 +163,13 @@ def calculate(params, wvmn=None, wvmx=None, dwv=10.0):
         payload["msg"] = msg
         return payload
 
-    bins, bind = parse_binning(values["binning"])
-    tel = apf_telescope()
-    instr = apf_spectrograph(
-        decker=values["slitwidth"], bins=bins, bind=bind, str_tel=tel
-    )
+    backend = get_backend(values["inst"])
+    try:
+        tel, instr = backend.configure(values)
+    except ParameterError as exc:
+        payload["msg"] = str(exc)
+        return payload
+
     obs = Observation(
         seeing=values["seeing"],
         airmass=values["airmass"],
@@ -157,14 +181,15 @@ def calculate(params, wvmn=None, wvmx=None, dwv=10.0):
         filter=values["ffilter"],
     )
 
-    wvmn = instr.wvmnx[0] if wvmn is None else float(wvmn)
-    wvmx = instr.wvmnx[1] if wvmx is None else float(wvmx)
+    default_min, default_max = backend.wavelength_range(instr)
+    wvmn = default_min if wvmn is None else float(wvmn)
+    wvmx = default_max if wvmx is None else float(wvmx)
     count = int((wvmx - wvmn) / dwv) + 1
     wave = wvmn + np.arange(count) * dwv
 
     try:
-        result = spec_calcs2n(wave, apf_thruput(wave), tel, instr, obs)
-        extras = apf_extras(result, obs)
+        result = spec_calcs2n(wave, backend.thruput(wave, instr), tel, instr, obs)
+        extras = backend.extras(result, obs)
     except TemplateFilterMismatch:
         payload["errormsg"] = NO_OVERLAP_MESSAGE
         return payload
@@ -173,14 +198,14 @@ def calculate(params, wvmn=None, wvmx=None, dwv=10.0):
     noise = np.full(result.wave.shape, result.noise)
 
     payload["wave"] = [float(w) for w in result.wave]
-    for key, values_array in (
+    for key, series in (
         ("s2n", result.sn),
         ("obj", result.star),
         ("sky", result.sky),
         ("noise", noise),
     ):
-        payload[key] = _pairs(result.wave, values_array)
-        payload["j" + key] = [float(v) for v in values_array]
+        payload[key] = _pairs(result.wave, series)
+        payload["j" + key] = [float(v) for v in series]
 
     payload["cts"] = [
         [float(w), float(o), float(s), float(n), float(sn)]
@@ -189,9 +214,8 @@ def calculate(params, wvmn=None, wvmx=None, dwv=10.0):
         )
     ]
 
-    payload["i2counts"] = extras.i2counts
-    payload["exp"] = extras.expmeter
-    payload["precision"] = extras.precision
+    if extras:
+        payload.update(extras)
 
     if int(np.sum(result.star < 0)) > MAX_NEGATIVE_COUNTS:
         payload["errormsg"] = NO_OVERLAP_MESSAGE

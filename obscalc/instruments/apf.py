@@ -13,6 +13,7 @@ from .. import config
 from ..idl_compat import interpol
 from ..structures import Instrument
 from ..telescopes import apf_telescope
+from .base import Backend, ParameterError
 
 #: Slit width and height in arcsec for each decker, from ``apfspec_setdecker``.
 DECKERS = {
@@ -101,3 +102,43 @@ def sensitivity_range(sens_file=DEFAULT_SENS_FILE):
     """Wavelength range actually covered by the throughput measurement."""
     sens_wave, _ = _sensitivity(sens_file)
     return float(sens_wave.min()), float(sens_wave.max())
+
+
+class APFBackend(Backend):
+    """Web backend for the APF.
+
+    ``slitwidth`` is a decker letter here, not a width in arcsec -- the APF form
+    posts ``N``/``S``/``M``/``W``/``O``/``T``/``B``.
+    """
+
+    name = "apf"
+
+    def configure(self, values):
+        decker = str(values.get("slitwidth") or "W").strip()
+        if decker not in DECKERS:
+            raise ParameterError(
+                "Inappropriate value for the input parameter Slitwidth: "
+                f"expected an APF decker, one of {', '.join(sorted(DECKERS))}"
+            )
+        tel = apf_telescope()
+        instr = apf_spectrograph(
+            decker=decker,
+            bins=values["bins"],
+            bind=values["bind"],
+            str_tel=tel,
+        )
+        return tel, instr
+
+    def thruput(self, wave, instr):
+        return apf_thruput(wave)
+
+    def extras(self, result, obs):
+        # Imported here because apf_extras reads back from a finished result.
+        from ..apf_extras import apf_extras
+
+        values = apf_extras(result, obs)
+        return {
+            "i2counts": values.i2counts,
+            "exp": values.expmeter,
+            "precision": values.precision,
+        }
