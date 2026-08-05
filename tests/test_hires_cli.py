@@ -53,13 +53,12 @@ def test_resolving_power_differs_between_epochs(capsys):
     assert "R = 216000" in capsys.readouterr().out
 
 
-def test_the_blaze_is_off_by_default_and_is_stated(capsys):
+def test_the_blaze_is_on_by_default_and_no_blaze_is_stated(capsys):
     assert main([]) == 0
-    out = capsys.readouterr().out
-    assert "best-case values within an order" in out
+    assert "each order's peak value" not in capsys.readouterr().out
 
-    assert main(["--blaze"]) == 0
-    assert "best-case values within an order" not in capsys.readouterr().out
+    assert main(["--no-blaze"]) == 0
+    assert "each order's peak value" in capsys.readouterr().out
 
 
 def test_applying_the_blaze_lowers_the_median(capsys):
@@ -68,7 +67,7 @@ def test_applying_the_blaze_lowers_the_median(capsys):
         out = capsys.readouterr().out
         return float(out.split("Overall median S/N ")[1].split(" ")[0])
 
-    assert median(["--blaze"]) < median([])
+    assert median([]) < median(["--no-blaze"])
 
 
 def test_the_blaze_nulls_do_not_trigger_the_dead_throughput_warning(capsys):
@@ -78,7 +77,7 @@ def test_the_blaze_nulls_do_not_trigger_the_dead_throughput_warning(capsys):
     its throughput measurement, as Kast G3+d55 has, goes dead over hundreds of
     Angstroms and must still be reported.
     """
-    main(["--blaze"])
+    main([])
     assert "WARNING: no usable throughput" not in capsys.readouterr().out
 
     from obscalc.kast_cli import main as kast_main

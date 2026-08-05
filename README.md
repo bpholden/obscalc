@@ -8,9 +8,13 @@ Supported instruments:
 
 | Instrument | Telescope | Channels | Command |
 | --- | --- | --- | --- |
-| Levy | APF 2.4 m | one | `obscalc-apf` (also `obscalc`) |
+| Levy | APF 2.4 m | one, cross-dispersed echelle | `obscalc-apf` (also `obscalc`) |
 | Kast | Shane 3 m, Lick | two, split by a dichroic | `obscalc-kast` |
 | HIRES | Keck I 10 m | one, cross-dispersed echelle | `obscalc-hires` |
+
+The two echelles share `echelle.py`: order geometry, the blaze function, and
+per-order throughput lookup. Both apply the blaze by default; `--no-blaze`
+reproduces the IDL on either.
 
 The engine is generic; everything named `apf_*` or `kast_*` is not. `s2n.py`,
 `slit.py`, `photometry.py`, `idl_compat.py`, `structures.py`, `cli_common.py`,
@@ -156,11 +160,12 @@ which is what `hires_thruput.pro` does and what makes it unlike the others:
    blaze peak, the result is a best-case value within the order.
 3. Which of two tabulated cross-disperser curves applies depends on the order
    centre: the blue setting below 3800 Å, the red above.
-4. **`--blaze` applies the blaze function** `(sin γ / γ)²`. It is off by default,
-   because `hires_calcs2n.pro` passed `BLAZE=blaze` with `blaze` undefined —
-   which leaves `keyword_set(BLAZE)` false in IDL — and for the newer detector did
-   not pass it at all. Turning it on drops the median throughput to 0.40 of the
-   peak value and makes the order structure visible.
+4. The blaze function `(sin γ / γ)²` is **applied by default**, so the reported
+   throughput is what each wavelength actually reaches. `hires_calcs2n.pro` never
+   applied it — it passed `BLAZE=blaze` with `blaze` undefined, leaving
+   `keyword_set(BLAZE)` false, and for the newer detector did not pass it at all —
+   so it quoted every order's peak. `--no-blaze` restores that, raising the median
+   throughput about 2.5×.
 
 `--decker` is a name (`B2 B5 C1 C5 D1 D3 E4 E5`), as for APF, not a width in
 arcsec as for Kast. `--epoch` selects the detector:
@@ -189,11 +194,11 @@ python scripts/make_plots.py /tmp/figs  # or somewhere else
 open plots/                             # macOS
 ```
 
-That writes ten figures: three APF configurations, three Kast ones (including
-`G3 + d55`, where the throughput dead zone is obvious), three HIRES ones (a
-blaze on/off pair, where the echelle order structure shows), and the Mauna Kea
-sky-model diagnostic from `plots.sky_models_figure`, which shows the recovered
-LRIS red channel lying on top of the independent DEIMOS measurement.
+That writes eleven figures: four APF configurations and three HIRES ones, each
+set including a blaze on/off pair where the echelle order structure shows; three
+Kast ones (including `G3 + d55`, where the throughput dead zone is obvious); and
+the Mauna Kea sky-model diagnostic from `plots.sky_models_figure`, which shows the
+recovered LRIS red channel lying on top of the independent DEIMOS measurement.
 
 ## Library
 
@@ -310,6 +315,34 @@ summed across their overlap — which is why it returned about −19 AB mag/arcs
 Rather than rescale detected counts per configuration, the throughput is undone
 to recover a true surface brightness, which is what the engine wants and what any
 instrument can then use. See below for how well that works.
+
+**The APF throughput was treated as a smooth curve when it is per-order.** The
+63 wavelengths in `sens_APF_nov2016.fits` are the 63 consecutive echelle order
+centres, orders 62 to 124, matching `MLAMBDA/m` to better than 0.006 Å. It is one
+measurement per order, taken at the blaze peak — the same structure as the HIRES
+table. `apf_thruput.pro` interpolated it *at the wavelength*, which mixes adjacent
+orders, and applied no blaze, so it reported every order's peak everywhere.
+`apf_calcs2n.pro` computed the order number, blaze centre and free spectral range
+(lines 113–121) and then discarded all three. Two corrections follow:
+
+- **Per-order lookup**, unconditional. Each wavelength takes its own order's
+  value. Median effect under 1%, but up to **20%** around 3800–4300 Å where the
+  sensitivity curve rises steeply — 3822 Å belongs to order 121, centred at
+  3851 Å, giving 0.059 rather than the interpolated 0.049.
+- **The blaze**, on by default as for HIRES. Median throughput ×0.41, median S/N
+  ×0.50 for a V=9 G star.
+
+There is no option to restore the old interpolation; it was simply wrong.
+`--no-blaze` gives the per-order peak, which is the closest thing to the IDL.
+
+**This moves the APF's RV numbers.** `apf_extras.i2counts` is the median object
+count over 5000–6200 Å, so it falls with the blaze applied — for a V=9 G star in
+600 s: 6250 → 2762 counts, exposure meter 2.02e8 → 8.92e7, and **RV precision
+2.67 → 4.48 m/s**. The coefficients `A = 4.47`, `B = −1.58` were *not* re-derived.
+Whether the new number is more nearly right depends on whether they were fitted
+against real extracted spectra (which carry the blaze) or against the old ETC's
+peak-of-order counts (in which case this double-counts it). That is worth
+checking against real APF data before the figure is quoted.
 
 **The HIRES detector boost was extrapolated off the end of its table.**
 `hires_thru_newccd` passed straight to `interpol`, whose table starts at 3153.9 Å

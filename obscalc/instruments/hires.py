@@ -16,11 +16,12 @@ cross-dispersed echelle, and ``hires_thruput.pro`` models it:
 3. Which of two tabulated cross-disperser curves applies depends on the order
    centre: the blue setting below 3800 A, the red one above.
 4. The blaze function itself, ``(sin(gamma)/gamma)^2`` with
-   ``gamma = pi (centre - wave) / fsr``, is available but **off by default**.
-   ``hires_calcs2n.pro`` passed ``BLAZE=blaze`` with ``blaze`` undefined, which
-   in IDL leaves ``keyword_set(BLAZE)`` false, and for new HIRES it did not pass
-   the keyword at all.  Turning it on drops the throughput toward the order
-   edges, roughly to 0.4 of the peak.
+   ``gamma = pi (centre - wave) / fsr``, is applied by default, so the reported
+   throughput is what a wavelength actually reaches rather than its order's peak.
+   ``hires_calcs2n.pro`` never applied it: it passed ``BLAZE=blaze`` with
+   ``blaze`` undefined, which in IDL leaves ``keyword_set(BLAZE)`` false, and for
+   new HIRES it did not pass the keyword at all.  ``blaze=False`` restores that
+   behaviour, and raises the median throughput by about 2.5x.
 
 ``x_inithires.pro`` also defines a third configuration, ``flg = 3``, for MTHR on
 the TMT.  That is a different instrument on a different telescope with its own
@@ -31,11 +32,31 @@ from functools import lru_cache
 
 import numpy as np
 
-from ..idl_compat import idl_long, interpol
+from ..echelle import blaze_efficiency, echelle_orders
+from ..idl_compat import interpol
 from ..s2n import Side
 from ..structures import Instrument
 from ..telescopes import keck_telescope
 from .base import Backend, ParameterError
+
+__all__ = [
+    "CCD_BOOST_RANGE",
+    "CROSS_DISPERSER_BREAK",
+    "DECKERS",
+    "DEFAULT_DECKER",
+    "DEFAULT_EPOCH",
+    "DEFAULT_RANGE",
+    "EPOCHS",
+    "MLAMBDA",
+    "HiresBackend",
+    "blaze_efficiency",
+    "ccd_boost",
+    "cross_disperser_order",
+    "echelle_orders",
+    "hires_spectrograph",
+    "hires_thruput",
+    "set_decker",
+]
 
 #: Slit width and height in arcsec for each decker, from ``hires_setdecker``.
 DECKERS = {
@@ -175,38 +196,13 @@ def hires_spectrograph(
     return set_decker(instr, decker)
 
 
-def echelle_orders(wave, mlambda=MLAMBDA):
-    """Echelle order number, blaze centre and free spectral range at ``wave``.
-
-    The order is ``long(mlambda / wave)``, truncating toward zero as IDL does.
-    """
-    wave = np.atleast_1d(np.asarray(wave, dtype=float))
-    if np.any(wave <= 0):
-        raise ValueError("wavelengths must be positive")
-    order = idl_long(mlambda / wave)
-    if np.any(order < 1):
-        raise ValueError(
-            f"wavelengths above {mlambda:.0f} A fall outside the echelle format"
-        )
-    centre = mlambda / order
-    return order, centre, centre / order
-
-
 def cross_disperser_order(centre):
-    """Which cross-disperser curve applies: 2 blueward of 3800 A, else 1."""
+    """Which cross-disperser curve applies: 2 blueward of 3800 A, else 1.
+
+    The APF has no equivalent -- ``apf_calcs2n.pro`` hardwires its ``iorder`` to
+    1 -- so this stays here rather than moving to :mod:`obscalc.echelle`.
+    """
     return np.where(np.asarray(centre, dtype=float) < CROSS_DISPERSER_BREAK, 2, 1)
-
-
-def blaze_efficiency(wave, centre, fsr):
-    """Echelle blaze function, ``(sin(gamma)/gamma)^2``, peaking at the centre."""
-    wave = np.asarray(wave, dtype=float)
-    gamma = np.pi * (np.asarray(centre, dtype=float) - wave) / np.asarray(
-        fsr, dtype=float
-    )
-    blaze = np.ones(np.broadcast(wave, gamma).shape)
-    nonzero = gamma != 0.0
-    blaze[nonzero] = (np.sin(gamma[nonzero]) / gamma[nonzero]) ** 2
-    return blaze
 
 
 @lru_cache(maxsize=None)
@@ -231,13 +227,16 @@ def ccd_boost(wave):
     return np.where(wave > table_wave[-1], table_boost[-1], boost)
 
 
-def hires_thruput(wave, instr=None, blaze=False, epoch=None):
+def hires_thruput(wave, instr=None, blaze=True, epoch=None):
     """End-to-end throughput (0-1) at ``wave``.
 
     ``epoch`` defaults to whatever ``instr`` records, else :data:`DEFAULT_EPOCH`.
-    ``blaze`` applies the echelle blaze function; it is off by default because
-    ``hires_calcs2n.pro`` never actually switched it on, which makes the result a
-    best-case value within each order.
+
+    ``blaze`` applies the echelle blaze function, and is **on** by default so the
+    result is the throughput actually reached at each wavelength.
+    ``hires_calcs2n.pro`` never switched it on -- it passed ``BLAZE=blaze`` with
+    ``blaze`` undefined -- so it reported the peak value within every order.  Pass
+    ``blaze=False`` to reproduce that.
     """
     wave = np.atleast_1d(np.asarray(wave, dtype=float))
     if epoch is None:

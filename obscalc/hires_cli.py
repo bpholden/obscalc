@@ -64,10 +64,11 @@ def _build_parser():
         "--binning", default="2x1", help="spatial x dispersion, e.g. 2x1"
     )
     inst.add_argument(
-        "--blaze",
-        action="store_true",
-        help="apply the echelle blaze function; off by default, matching the IDL, "
-        "which reports the peak value within each order",
+        "--no-blaze",
+        dest="blaze",
+        action="store_false",
+        help="report each echelle order's peak throughput instead of the value "
+        "reached at each wavelength; reproduces hires_calcs2n.pro",
     )
 
     add_observation_arguments(parser, seeing=0.7, exptime=3600.0, mag=17.0)
@@ -156,9 +157,8 @@ def main(argv=None):
         _report_orders(result, instr)
         if not args.blaze:
             print(
-                "Throughput is read at each order centre, so these are "
-                "best-case values within an order; --blaze applies the blaze "
-                "function.",
+                "Throughput is each order's peak value; drop --no-blaze for the "
+                "value actually reached at each wavelength.",
                 file=sys.stdout,
             )
     write_outputs(args, result, obs, instr=instr)

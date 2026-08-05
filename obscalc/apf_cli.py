@@ -13,6 +13,7 @@ import numpy as np
 
 from . import config
 from .apf_extras import apf_extras
+from .echelle import echelle_orders
 from .cli_common import (
     add_grid_arguments,
     add_observation_arguments,
@@ -58,6 +59,13 @@ def _build_parser():
     inst.add_argument(
         "--binning", default="1x1", help="spatial x dispersion, e.g. 2x1"
     )
+    inst.add_argument(
+        "--no-blaze",
+        dest="blaze",
+        action="store_false",
+        help="report each echelle order's peak throughput instead of the value "
+        "reached at each wavelength; reproduces apf_thruput.pro",
+    )
 
     add_observation_arguments(parser, seeing=1.2, exptime=3600.0, mag=17.0)
     add_output_arguments(parser)
@@ -93,6 +101,23 @@ def _configure(args):
     return tel, instr, obs, wavelength_grid(wvmn, wvmx, args.dwv)
 
 
+def _report_orders(result, instr, blaze=True, stream=None):
+    """A line about the echelle format, as the HIRES driver prints."""
+    stream = sys.stdout if stream is None else stream
+    order, _, fsr = echelle_orders(result.wave, instr.mlambda)
+    print(
+        f"\nEchelle orders {order.min()}-{order.max()} across the range; "
+        f"free spectral range {fsr.min():.1f}-{fsr.max():.1f} A",
+        file=stream,
+    )
+    if not blaze:
+        print(
+            "Throughput is each order's peak value; drop --no-blaze for the "
+            "value actually reached at each wavelength.",
+            file=stream,
+        )
+
+
 def main(argv=None):
     args = _build_parser().parse_args(argv)
 
@@ -113,7 +138,8 @@ def main(argv=None):
     tel, instr, obs, wave = _configure(args)
 
     # One detector spans the whole range.
-    sides = [Side("", instr, np.arange(wave.size), apf_thruput(wave))]
+    thru = apf_thruput(wave, instr, blaze=args.blaze)
+    sides = [Side("", instr, np.arange(wave.size), thru)]
 
     try:
         result = run_sides(wave, tel, sides, obs)
@@ -124,6 +150,7 @@ def main(argv=None):
 
     if not args.quiet:
         summarise(result, obs, instr=instr, extras=extras)
+        _report_orders(result, instr, blaze=args.blaze)
     write_outputs(args, result, obs, instr=instr)
     return 0
 

@@ -31,7 +31,7 @@ GRID = np.arange(*DEFAULT_RANGE, 10.0)
 
 def result_for(**kwargs):
     tel = keck_telescope("KeckI")
-    blaze = kwargs.pop("blaze", False)
+    blaze = kwargs.pop("blaze", True)
     obs_kwargs = {"seeing": 0.7, "mstar": 15.0, "mtype": 2, "exptime": 1800.0}
     obs_kwargs.update(kwargs.pop("obs", {}))
     instr = hires_spectrograph(**kwargs, str_tel=tel)
@@ -97,14 +97,14 @@ def test_unknown_configurations_are_rejected():
 
 def test_echelle_order_geometry():
     """m = long(MLAMBDA/wave), centre = MLAMBDA/m, fsr = centre/m."""
-    order, centre, fsr = echelle_orders([5000.0])
+    order, centre, fsr = echelle_orders([5000.0], MLAMBDA)
     assert order[0] == 71
     assert centre[0] == pytest.approx(MLAMBDA / 71)
     assert fsr[0] == pytest.approx(centre[0] / 71)
 
 
 def test_orders_get_wider_and_lower_numbered_toward_the_red():
-    order, _, fsr = echelle_orders([3000.0, 5000.0, 9500.0])
+    order, _, fsr = echelle_orders([3000.0, 5000.0, 9500.0], MLAMBDA)
     assert list(order) == sorted(order, reverse=True)
     assert list(fsr) == sorted(fsr)
     assert order[0] == 118 and order[-1] == 37
@@ -113,15 +113,15 @@ def test_orders_get_wider_and_lower_numbered_toward_the_red():
 
 
 def test_the_order_centre_is_within_half_a_free_spectral_range():
-    _, centre, fsr = echelle_orders(GRID)
+    _, centre, fsr = echelle_orders(GRID, MLAMBDA)
     assert np.all(np.abs(centre - GRID) <= fsr)
 
 
 def test_wavelengths_outside_the_echelle_format_are_rejected():
     with pytest.raises(ValueError, match="echelle format"):
-        echelle_orders([MLAMBDA * 2])
+        echelle_orders([MLAMBDA * 2], MLAMBDA)
     with pytest.raises(ValueError, match="positive"):
-        echelle_orders([0.0])
+        echelle_orders([0.0], MLAMBDA)
 
 
 def test_cross_disperser_switches_at_3800_angstroms():
@@ -136,12 +136,12 @@ def test_cross_disperser_switches_at_3800_angstroms():
 
 
 def test_blaze_peaks_at_the_order_centre():
-    _, centre, fsr = echelle_orders([5000.0])
+    _, centre, fsr = echelle_orders([5000.0], MLAMBDA)
     assert blaze_efficiency(centre, centre, fsr)[0] == pytest.approx(1.0)
 
 
 def test_blaze_falls_toward_the_order_edge():
-    _, centre, fsr = echelle_orders([5000.0])
+    _, centre, fsr = echelle_orders([5000.0], MLAMBDA)
     half = blaze_efficiency(centre + fsr / 2, centre, fsr)[0]
     assert half == pytest.approx(0.405, abs=0.01)
     edge = blaze_efficiency(centre + fsr, centre, fsr)[0]
@@ -149,21 +149,22 @@ def test_blaze_falls_toward_the_order_edge():
 
 
 def test_blaze_is_symmetric_about_the_centre():
-    _, centre, fsr = echelle_orders([5000.0])
+    _, centre, fsr = echelle_orders([5000.0], MLAMBDA)
     offset = fsr / 3
     assert blaze_efficiency(centre - offset, centre, fsr)[0] == pytest.approx(
         blaze_efficiency(centre + offset, centre, fsr)[0]
     )
 
 
-def test_blaze_is_off_by_default():
+def test_blaze_is_on_by_default():
     """hires_calcs2n.pro passed BLAZE=blaze with blaze undefined, so it never fired.
 
-    That makes the reported throughput the peak value within each order.
+    That reported the peak value within every order.  The default here is the
+    value actually reached at each wavelength; blaze=False restores the IDL's.
     """
     instr = hires_spectrograph()
-    off = hires_thruput(GRID, instr)
-    on = hires_thruput(GRID, instr, blaze=True)
+    on = hires_thruput(GRID, instr)
+    off = hires_thruput(GRID, instr, blaze=False)
     assert np.all(on <= off + 1e-12)
     # Averaged over an order, sinc^2 comes to about 0.4.
     assert np.median(on / off) == pytest.approx(0.40, abs=0.03)
@@ -175,8 +176,8 @@ def test_blaze_is_off_by_default():
 def test_throughput_is_constant_across_an_order():
     """The table is read at the order centre, not at the wavelength."""
     instr = hires_spectrograph(epoch="old")  # no detector boost to confuse it
-    order, _, _ = echelle_orders(GRID)
-    thru = hires_thruput(GRID, instr)
+    order, _, _ = echelle_orders(GRID, MLAMBDA)
+    thru = hires_thruput(GRID, instr, blaze=False)
     inside = order == order[len(order) // 2]
     assert inside.sum() > 1
     assert np.allclose(thru[inside], thru[inside][0])
@@ -184,21 +185,21 @@ def test_throughput_is_constant_across_an_order():
 
 def test_throughput_steps_between_orders():
     instr = hires_spectrograph(epoch="old")
-    thru = hires_thruput(GRID, instr)
+    thru = hires_thruput(GRID, instr, blaze=False)
     assert len(np.unique(thru)) > 20  # one value per order, not a smooth curve
 
 
 def test_throughput_is_a_plausible_fraction():
     for epoch in EPOCHS:
         instr = hires_spectrograph(epoch=epoch)
-        thru = hires_thruput(GRID, instr)
+        thru = hires_thruput(GRID, instr, blaze=False)
         assert np.all(thru > 0), epoch
         assert np.all(thru < 0.5), epoch
 
 
 def test_the_newer_detector_raises_the_throughput():
-    old = hires_thruput(GRID, hires_spectrograph(epoch="old"))
-    new = hires_thruput(GRID, hires_spectrograph(epoch="new"))
+    old = hires_thruput(GRID, hires_spectrograph(epoch="old"), blaze=False)
+    new = hires_thruput(GRID, hires_spectrograph(epoch="new"), blaze=False)
     assert np.all(new >= old)
     assert np.median(new / old) > 1.0
 
@@ -255,28 +256,45 @@ def test_every_decker_and_epoch_runs():
 def test_the_newer_detector_trades_signal_per_pixel_for_resolution():
     """Smaller pixels mean higher R, so fewer photons land in each pixel.
 
-    The newer detector has 1.29x the throughput but 15 micron pixels against 24,
-    lifting R from 135000 to 216000 and so covering 0.625x the wavelength per
-    pixel.  Per pixel that is a net loss of about 11 per cent; per resolution
-    element it is a 13 per cent gain.  Comparing per-pixel S/N between the two
-    epochs is therefore misleading on its own.
+    The two epochs share the per-order throughput table, so the newer detector's
+    gain over the older one is exactly the tabulated detector boost, between 1.07x
+    and 11.2x depending on wavelength.  Against that it has 15 micron pixels
+    rather than 24, lifting R from 135000 to 216000 and so covering 0.625x the
+    wavelength per pixel.
+
+    Per-pixel S/N is *not* a meaningful single comparison between the epochs: it
+    depends on which noise term dominates, and the sign flips with the blaze.
+    With the blaze off the new detector is 11 per cent worse per pixel; with it
+    on, enough wavelengths fall far enough down the blaze to be read-noise
+    dominated, where the newer detector's 2.2 e- against 4.3 e- wins, and it comes
+    out 12 per cent better.  What holds either way is throughput, dispersion, and
+    counts per unit wavelength.
     """
-    old = result_for(epoch="old")
-    new = result_for(epoch="new")
+    for blaze in (True, False):
+        old = result_for(epoch="old", blaze=blaze)
+        new = result_for(epoch="new", blaze=blaze)
 
-    assert np.median(new.thru) > np.median(old.thru)
-    assert np.median(new.pixel) < np.median(old.pixel)
+        # The boost applies wavelength by wavelength, so it is exactly the ratio.
+        assert np.all(new.thru >= old.thru)
+        assert np.allclose(new.thru / old.thru, ccd_boost(new.wave))
 
-    assert np.median(new.sn) < np.median(old.sn)
-    assert np.median(new.sn_per_resolution_element) > np.median(
-        old.sn_per_resolution_element
+        assert np.allclose(new.pixel / old.pixel, 135000.0 / 216000.0)
+        assert np.median(new.star / new.pixel) > np.median(old.star / old.pixel)
+        assert np.median(new.sn_per_resolution_element) > np.median(
+            old.sn_per_resolution_element
+        )
+
+    # And the per-pixel comparison does indeed reverse.
+    assert np.median(result_for(epoch="new", blaze=False).sn) < np.median(
+        result_for(epoch="old", blaze=False).sn
     )
-    # Counts per unit wavelength, which is the fair comparison, favours the new one.
-    assert np.median(new.star / new.pixel) > np.median(old.star / old.pixel)
+    assert np.median(result_for(epoch="new").sn) > np.median(
+        result_for(epoch="old").sn
+    )
 
 
 def test_applying_the_blaze_lowers_signal_to_noise():
-    assert np.median(result_for(blaze=True).sn) < np.median(result_for().sn)
+    assert np.median(result_for().sn) < np.median(result_for(blaze=False).sn)
 
 
 def test_resolving_power_reaches_the_table_meta():

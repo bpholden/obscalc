@@ -10,7 +10,7 @@ import numpy as np
 from astropy.io import fits
 
 from .. import config
-from ..idl_compat import interpol
+from ..echelle import measured_orders, order_centre_throughput
 from ..s2n import Side
 from ..structures import Instrument
 from ..telescopes import apf_telescope
@@ -33,6 +33,10 @@ DEFAULT_SENS_FILE = "sens_APF_nov2016.fits"
 
 #: Default wavelength grid, from ``x_initapfspec.pro``.
 DEFAULT_RANGE = (3742.0, 7700.0)
+
+#: ``2 sigma sin(delta) cos(theta)`` for the echelle, measured from the order
+#: central wavelengths.  Order ``m`` is centred on ``MLAMBDA / m``.
+MLAMBDA = 465980.24
 
 
 def set_decker(instr, decker):
@@ -60,7 +64,7 @@ def apf_spectrograph(decker="W", bins=1, bind=1, str_tel=None):
         mag_para=4.9913,
         pixel_size=13.5,
         R=282160.8,
-        mlambda=465980.24,  # measured from order central wavelengths
+        mlambda=MLAMBDA,
         dely=0.154693,
         readno=3.75,
         dark=7.3,
@@ -90,22 +94,47 @@ def _sensitivity(sens_file):
         )
 
 
-def apf_thruput(wave, sens_file=DEFAULT_SENS_FILE):
+def apf_thruput(wave, instr=None, blaze=True, sens_file=DEFAULT_SENS_FILE):
     """End-to-end throughput (0-1) at ``wave``.
 
-    Outside the measured range this extrapolates, as the IDL did.  Unlike
-    ``apflow_thruput.pro`` there is no floor on the result, so a wavelength far
-    enough outside the table can give a non-physical value; the measured range
-    is 3757.9-7515.8 Angstroms.
+    The Levy is a cross-dispersed echelle and its sensitivity file is tabulated
+    **once per order, at the blaze centre** -- see :func:`sensitivity_orders`.  So
+    each wavelength takes the throughput of its own order, constant across that
+    order, scaled by the blaze function.
+
+    ``apf_thruput.pro`` did neither: it interpolated the curve at the wavelength,
+    which mixes adjacent orders, and applied no blaze, which reports every order's
+    peak.  ``apf_calcs2n.pro`` computed the order number, blaze centre and free
+    spectral range and then discarded all three.  Pass ``blaze=False`` for the
+    per-order value without the blaze; there is no way to ask for the old
+    interpolation, which was simply wrong.
+
+    Orders outside the measurement hold the nearest measured value rather than
+    extrapolating.
     """
+    mlambda = instr.mlambda if instr is not None else MLAMBDA
     sens_wave, sens_eff = _sensitivity(sens_file)
-    return interpol(sens_eff, sens_wave, np.asarray(wave, dtype=float)) / 100.0
+    return order_centre_throughput(
+        np.asarray(wave, dtype=float), mlambda, sens_wave, sens_eff / 100.0, blaze=blaze
+    )
 
 
 def sensitivity_range(sens_file=DEFAULT_SENS_FILE):
     """Wavelength range actually covered by the throughput measurement."""
     sens_wave, _ = _sensitivity(sens_file)
     return float(sens_wave.min()), float(sens_wave.max())
+
+
+def sensitivity_orders(sens_file=DEFAULT_SENS_FILE, mlambda=MLAMBDA):
+    """Echelle orders the sensitivity file measures.
+
+    The file's 63 wavelengths are the 63 consecutive order centres 62 to 124,
+    matching ``MLAMBDA / m`` to better than 0.006 Angstroms.  That is the evidence
+    the measurement is per-order, and :func:`measured_orders` raises if a
+    replacement file does not share the property.
+    """
+    sens_wave, _ = _sensitivity(sens_file)
+    return measured_orders(sens_wave, mlambda)
 
 
 class APFBackend(Backend):
@@ -133,8 +162,15 @@ class APFBackend(Backend):
             bind=values["bind"],
             str_tel=tel,
         )
+        blaze = str(values.get("blaze", "true")).strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        )
         index = np.arange(np.size(wave))
-        return tel, [Side("", instr, index, apf_thruput(wave))]
+        return tel, [
+            Side("", instr, index, apf_thruput(wave, instr, blaze=blaze))
+        ]
 
     def extras(self, result, obs):
         # Imported here because apf_extras reads back from a finished result.

@@ -29,11 +29,15 @@ from obscalc.s2n import Side, run_sides
 from obscalc.structures import Observation
 from obscalc.telescopes import apf_telescope, keck_telescope, lick_telescope
 
-#: APF cases: (filename stem, decker, binning, magnitude, system, seconds).
+#: APF cases: (stem, decker, binning, blaze, magnitude, system, seconds).  Like
+#: HIRES the Levy is an echelle, so the blaze pair is worth comparing: with the
+#: blaze off you see each order's peak throughput, which is what apf_thruput.pro
+#: reported at every wavelength.
 APF_CASES = [
-    ("apf-W-mag13-AB", "W", (1, 1), 13.0, 2, 1200.0),
-    ("apf-N-mag9-Vega", "N", (1, 1), 9.0, 1, 600.0),
-    ("apf-M-mag15-AB-2x1", "M", (2, 1), 15.0, 2, 3600.0),
+    ("apf-W-mag13-AB", "W", (1, 1), True, 13.0, 2, 1200.0),
+    ("apf-W-mag13-AB-peak", "W", (1, 1), False, 13.0, 2, 1200.0),
+    ("apf-N-mag9-Vega", "N", (1, 1), True, 9.0, 1, 600.0),
+    ("apf-M-mag15-AB-2x1", "M", (2, 1), True, 15.0, 2, 3600.0),
 ]
 
 #: Kast cases: (stem, grism, dichroic, slit, magnitude, system, seconds).
@@ -45,22 +49,21 @@ KAST_CASES = [
     ("kast-G3-d55-mag18", "G3", "d55", 1.5, 18.0, 2, 1800.0),
 ]
 
-#: HIRES cases: (stem, decker, epoch, blaze, magnitude, system, seconds).  The
-#: blaze pair is worth comparing: without it the throughput is the peak value
-#: within each echelle order, with it the sinc^2 falloff to the order edges shows.
+#: HIRES cases: (stem, decker, epoch, blaze, magnitude, system, seconds).
 HIRES_CASES = [
-    ("hires-C5-new-mag15", "C5", "new", False, 15.0, 2, 1800.0),
-    ("hires-C5-new-mag15-blaze", "C5", "new", True, 15.0, 2, 1800.0),
-    ("hires-C1-old-mag12", "C1", "old", False, 12.0, 2, 1800.0),
+    ("hires-C5-new-mag15", "C5", "new", True, 15.0, 2, 1800.0),
+    ("hires-C5-new-mag15-peak", "C5", "new", False, 15.0, 2, 1800.0),
+    ("hires-C1-old-mag12", "C1", "old", True, 12.0, 2, 1800.0),
 ]
 
 
-def apf_figure(outdir, stem, decker, binning, mag, mtype, exptime):
+def apf_figure(outdir, stem, decker, binning, blaze, mag, mtype, exptime):
     wave = wavelength_grid(*APF_RANGE, 10.0)
     tel = apf_telescope()
     instr = apf_spectrograph(decker=decker, bins=binning[0], bind=binning[1])
     obs = Observation(seeing=1.2, mstar=mag, mtype=mtype, exptime=exptime)
-    sides = [Side("", instr, np.arange(wave.size), apf_thruput(wave))]
+    thru = apf_thruput(wave, instr, blaze=blaze)
+    sides = [Side("", instr, np.arange(wave.size), thru)]
     result = run_sides(wave, tel, sides, obs)
     return save_qa_figure(outdir / f"{stem}.png", result, instr, obs)
 

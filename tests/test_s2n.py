@@ -53,7 +53,11 @@ def test_tall_decker_keeps_the_sky_subtraction_penalty(setup):
 
 
 def test_signal_to_noise_scales_as_root_time_when_source_dominated(setup):
-    wave, tel, thru = setup
+    # A flat throughput, so this exercises the engine rather than the echelle
+    # blaze: with the blaze applied, wavelengths near an order edge are
+    # read-noise dominated and scale closer to linearly in time.
+    wave, tel, _ = setup
+    thru = np.full(wave.shape, 0.15)
     bright = dict(mstar=8.0)
     short = run(wave, tel, thru, exptime=100.0, **bright)
     long = run(wave, tel, thru, exptime=400.0, **bright)
