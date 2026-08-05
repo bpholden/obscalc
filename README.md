@@ -11,6 +11,7 @@ Supported instruments:
 | Levy | APF 2.4 m | one, cross-dispersed echelle | `obscalc-apf` (also `obscalc`) |
 | Kast | Shane 3 m, Lick | two, split by a dichroic | `obscalc-kast` |
 | HIRES | Keck I 10 m | one, cross-dispersed echelle | `obscalc-hires` |
+| DEIMOS | Keck II 10 m | one | `obscalc-deimos` |
 
 The two echelles share `echelle.py`: order geometry, the blaze function, and
 per-order throughput lookup. Both apply the blaze by default; `--no-blaze`
@@ -184,6 +185,50 @@ default binning is `2x1`, matching `x_inithires.pro`.
 That is a different instrument on a different telescope with its own throughput
 routine (`mthr_thruput.pro`) and is not ported.
 
+### DEIMOS
+
+```sh
+obscalc-deimos --mag 22 --mtype 2 --exptime 1200 \
+               --grating 1200G --cwave 7000 --slitwidth 1.0
+```
+
+```
+4000-10000 A: R = 22727, 6.02 pixels across the slit, 13 rows extracted, ...
+  slit transmission 0.7945, read noise 9.37 e-, dark 17.33 e-
+  median S/N 1.82 per binned pixel, 4.46 per resolution element
+
+Grating 1200G tilted to 7000 A: throughput from sens_DEIMOS_1200G.fits,
+  measured over 4014-9348 A
+```
+
+DEIMOS is a single channel and needs no special S/N treatment — it reached
+`spec_calcs2n` through `keck_calcs2n.pro` with `flg = 4`. What is particular to it
+is that the throughput depends on **two** settings, and between them they pick one
+of nine measured files:
+
+| Grating | R | Tilts with their own measurement |
+| --- | --- | --- |
+| `600Z` | 11538 | 5000, 6000, 7000 Å (8000 reuses the 7000 Å file) |
+| `900Z` | 17308 | 5000, 6000, 7000, 8000 Å — all four distinct |
+| `1200G` | 22727 | one file for all four tilts |
+| `1200B` | 22727 | one file for all four tilts |
+
+`--cwave` is the grating tilt in Ångströms and must be one of 5000, 6000, 7000 or
+8000 — `deimos_thruput.pro` compared `fix(str_instr.cwave)` against those exact
+integers, so nothing in between exists. It selects the sensitivity measurement and
+nothing else: it does not narrow the wavelength grid, so you can ask for
+wavelengths a configuration does not record.
+
+**Every configuration's measurement is narrower than the default 4000–10000 Å
+grid**, so the driver says where the throughput is held rather than measured:
+
+```
+WARNING: 4000-4010, 9350-10000 A lie outside that measurement. Throughput there
+is held at the nearest measured value, so those counts are an extrapolation.
+```
+
+`--slitwidth` is a width in arcsec here, as for Kast.
+
 ### Looking at plots
 
 Either add `--plot out.png` to any run, or generate a representative set:
@@ -194,11 +239,13 @@ python scripts/make_plots.py /tmp/figs  # or somewhere else
 open plots/                             # macOS
 ```
 
-That writes eleven figures: four APF configurations and three HIRES ones, each
+That writes fifteen figures: four APF configurations and three HIRES ones, each
 set including a blaze on/off pair where the echelle order structure shows; three
-Kast ones (including `G3 + d55`, where the throughput dead zone is obvious); and
-the Mauna Kea sky-model diagnostic from `plots.sky_models_figure`, which shows the
-recovered LRIS red channel lying on top of the independent DEIMOS measurement.
+Kast ones (including `G3 + d55`, where the throughput dead zone is obvious); four
+DEIMOS ones (including a `900Z` tilt pair, where the measured range visibly
+moves); and the Mauna Kea sky-model diagnostic from `plots.sky_models_figure`,
+which shows the recovered LRIS red channel lying on top of the independent DEIMOS
+measurement.
 
 ## Library
 
@@ -347,6 +394,26 @@ peak-of-order counts and so reported a precision better than the instrument
 achieves. Anything comparing against historical ETC output should expect the
 newer, larger — and more honest — figure.
 
+**DEIMOS's default grating did not exist, and its throughput was extrapolated.**
+Two problems in one instrument:
+
+- `x_initdeimos.pro` and `deimos_calcs2n_wrapper.pro` both default the grating to
+  `'1200'`, which is not one of the four names (`600Z`, `900Z`, `1200G`, `1200B`)
+  the routine then switches on — so the default configuration ran straight into
+  `else: stop`. `1200G` is the default here.
+- `deimos_thruput.pro` extrapolated its sensitivity curve and clipped only at
+  zero with `> 0.`, which catches a curve falling negative but not one rising
+  absurdly. Extrapolating the `600Z` measurement at its 5000 Å tilt, which stops
+  at 8035 Å, reaches **0.848 by 10000 Å — more than twice the best efficiency ever
+  measured for any DEIMOS configuration (0.358)**. The nearest measured value is
+  held instead. The zero clip is kept: `sens_DEIMOS_900_500nm` holds 133 slightly
+  negative efficiencies inside its own range.
+
+**`spec_calcs2n.pro`'s DEIMOS sky branch was dead code.** It selected
+`flg_sky = 1` when `str_instr.grating EQ '1200'`, but `x_initdeimos.pro` only ever
+set `600Z`, `900Z`, `1200G` or `1200B`, so the 1200-line sky model was never
+reached and DEIMOS always used `flg_sky = 0`. That is what it gets here too.
+
 **The HIRES detector boost was extrapolated off the end of its table.**
 `hires_thru_newccd` passed straight to `interpol`, whose table starts at 3153.9 Å
 while HIRES is used from 3000 Å. Continuing the first interval trebles the boost
@@ -478,6 +545,7 @@ would turn this into a real regression test.
 | `data/sky/mkea_sky_*.fits.gz` | xidl `Obs/Sky/Empirical`; new-moon Mauna Kea sky from DEIMOS data |
 | `data/sky/bsky.*`, `data/sky/rsky.*` | LRIS sky frames, Keck I 2017-05-27/28, in e⁻/s/Å/arcsec²; throughput undone at read time |
 | `data/thruput/sens_LRIS*.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; used to undo the LRIS sky throughput |
+| `data/thruput/sens_DEIMOS_*.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; nine grating/tilt combinations |
 | `data/extinction/mthamextinct.dat` | xidl `Spec/Longslit/calib/extinction` |
 | `data/filters/` | expcalc `Data/filters` (Buser, Cousins, SDSS, Gaia) |
 | `data/templates/` | expcalc `Data/templates` (Pickles library, SN Ia, QSO, CALSPEC Vega) |
@@ -487,19 +555,22 @@ accepts a `phase` argument and ignores it, exactly as the IDL did.
 
 ## Scope
 
-Three instruments: APF and Kast at Mt Hamilton, HIRES on Keck I. All four
-supported sites — APF, Lick-3m, Keck I and Keck II — have extinction and sky
-models, with usable Mauna Kea sky coverage from 3102 to 9999 Å.
-`atmosphere.extinction_for` and `sky.sky_for` raise `NotImplementedError` for any
-other telescope rather than quietly substituting the wrong site.
+Four instruments: APF and Kast at Mt Hamilton, HIRES on Keck I, DEIMOS on
+Keck II. All four supported sites have extinction and sky models, with usable
+Mauna Kea sky coverage from 3102 to 9999 Å. `atmosphere.extinction_for` and
+`sky.sky_for` raise `NotImplementedError` for any other telescope rather than
+quietly substituting the wrong site.
 
 `sky_for` takes an instrument name as well as a telescope, mirroring the nested
 `case str_instr.name` inside `spec_calcs2n.pro`'s Keck II branch, because Keck
 chose its sky model per instrument.
 
-Still unported, all on Keck II and so needing no new site work: LRIS, ESI and
-DEIMOS. Each needs its `x_init*` definition, its `*_thruput` curve and
-sensitivity files, a `Backend`, and a CLI module. ESI and DEIMOS look
-straightforward; LRIS is the involved one, since `lris_thruput.pro` branches on
-both dichroic and grating and it is two-channel like Kast. MTHR (`flg = 3` in
-`x_inithires.pro`) is on the TMT and would need a new telescope and site.
+Still unported, both on Keck II and so needing no new site work:
+
+- **ESI**, single channel with one throughput curve — the most straightforward
+  remaining piece.
+- **LRIS**, the involved one: two channels like Kast, and `lris_thruput.pro`
+  branches on both dichroic and grating.
+
+MTHR (`flg = 3` in `x_inithires.pro`) is on the TMT and would need a new
+telescope and site.

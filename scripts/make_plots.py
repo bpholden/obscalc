@@ -22,6 +22,8 @@ from obscalc.instruments.kast import (
     kast_thruput,
     split_wavelengths,
 )
+from obscalc.instruments.deimos import DEFAULT_RANGE as DEIMOS_RANGE
+from obscalc.instruments.deimos import deimos_spectrograph, deimos_thruput
 from obscalc.instruments.hires import DEFAULT_RANGE as HIRES_RANGE
 from obscalc.instruments.hires import hires_spectrograph, hires_thruput
 from obscalc.plots import save_qa_figure, save_sky_models_figure
@@ -54,6 +56,15 @@ HIRES_CASES = [
     ("hires-C5-new-mag15", "C5", "new", True, 15.0, 2, 1800.0),
     ("hires-C5-new-mag15-peak", "C5", "new", False, 15.0, 2, 1800.0),
     ("hires-C1-old-mag12", "C1", "old", True, 12.0, 2, 1800.0),
+]
+
+#: DEIMOS cases: (stem, grating, cwave, slit, magnitude, system, seconds).  The
+#: 900Z pair shows how the tilt moves which part of the range is measured.
+DEIMOS_CASES = [
+    ("deimos-1200G-7000-mag22", "1200G", 7000, 1.0, 22.0, 2, 1200.0),
+    ("deimos-900Z-5000-mag22", "900Z", 5000, 1.0, 22.0, 2, 1200.0),
+    ("deimos-900Z-8000-mag22", "900Z", 8000, 1.0, 22.0, 2, 1200.0),
+    ("deimos-600Z-7000-mag24", "600Z", 7000, 0.75, 24.0, 2, 3600.0),
 ]
 
 
@@ -99,6 +110,20 @@ def hires_figure(outdir, stem, decker, epoch, blaze, mag, mtype, exptime):
     return save_qa_figure(outdir / f"{stem}.png", result, instr, obs)
 
 
+def deimos_figure(outdir, stem, grating, cwave, slit, mag, mtype, exptime):
+    wave = wavelength_grid(*DEIMOS_RANGE, 10.0)
+    tel = keck_telescope("KeckII")
+    instr = deimos_spectrograph(
+        grating=grating, cwave=cwave, slit=slit, str_tel=tel
+    )
+    obs = Observation(seeing=0.7, mstar=mag, mtype=mtype, exptime=exptime)
+    thru = deimos_thruput(wave, instr)
+    result = run_sides(
+        wave, tel, [Side("", instr, np.arange(wave.size), thru)], obs
+    )
+    return save_qa_figure(outdir / f"{stem}.png", result, instr, obs)
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     outdir = Path(argv[0] if argv else "plots")
@@ -111,6 +136,8 @@ def main(argv=None):
         written.append(kast_figure(outdir, *case))
     for case in HIRES_CASES:
         written.append(hires_figure(outdir, *case))
+    for case in DEIMOS_CASES:
+        written.append(deimos_figure(outdir, *case))
 
     for path in written:
         print(path)

@@ -131,7 +131,7 @@ def test_negative_count_threshold_is_the_one_bad_obj_used():
 # --- instrument dispatch -------------------------------------------------
 
 
-@pytest.mark.parametrize("inst", ["lris", "esi", "deimos"])
+@pytest.mark.parametrize("inst", ["lris", "esi"])
 def test_unported_instruments_are_refused_not_answered_with_apf(inst):
     """The web forms post `inst`; returning APF numbers for LRIS would be wrong.
 
@@ -159,7 +159,7 @@ def test_instrument_name_is_case_and_space_insensitive():
 def test_registered_instruments_are_what_the_package_supports():
     from obscalc.instruments import available_instruments
 
-    assert available_instruments() == ["apf", "hires", "kast"]
+    assert available_instruments() == ["apf", "deimos", "hires", "kast"]
 
 
 def test_backend_owns_the_slitwidth_semantics():
@@ -306,6 +306,68 @@ def test_hires_blaze_flag_lowers_the_counts():
 def test_hires_read_noise_is_a_single_value():
     # One detector, unlike Kast.
     assert len(set(np.round(calculate(HIRES_REQUEST)["jnoise"], 6))) == 1
+
+
+DEIMOS_REQUEST = {
+    "inst": "deimos",
+    "mag": "22.0",
+    "mtype": "2",
+    "seeing": "0.7",
+    "airmass": "1.1",
+    "exptime": "1200",
+    "binning": "1x1",
+    "slitwidth": "1.0",
+    "grating": "1200G",
+    "cwave": "7000",
+    "redshift": "0.0",
+}
+
+
+def test_deimos_request_fills_the_same_payload_shape():
+    payload = calculate(DEIMOS_REQUEST)
+    assert set(payload) == PARSE_RETURN_KEYS
+    assert payload["msg"] == ""
+    assert payload["errormsg"] == ""
+    assert len(payload["wave"]) == 601  # 4000-10000 A at 10 A
+    assert np.all(np.isfinite(payload["js2n"]))
+    assert payload["i2counts"] is None  # no iodine cell
+
+
+def test_deimos_needs_both_a_grating_and_a_tilt():
+    """cwave is the second half of the configuration, unique to DEIMOS."""
+    assert calculate({**DEIMOS_REQUEST, "cwave": "5000"})["msg"] == ""
+    payload = calculate({**DEIMOS_REQUEST, "cwave": "6500"})
+    assert "Central Wavelength" in payload["msg"]
+    assert payload["wave"] == []
+
+
+def test_deimos_rejects_the_invalid_idl_default_grating():
+    payload = calculate({**DEIMOS_REQUEST, "grating": "1200"})
+    assert "Grating" in payload["msg"]
+
+
+def test_deimos_tilt_changes_the_throughput():
+    blue = np.array(calculate({**DEIMOS_REQUEST, "grating": "900Z", "cwave": "5000"})["jobj"])
+    red = np.array(calculate({**DEIMOS_REQUEST, "grating": "900Z", "cwave": "8000"})["jobj"])
+    assert not np.allclose(blue, red)
+
+
+def test_deimos_read_noise_is_a_single_value():
+    assert len(set(np.round(calculate(DEIMOS_REQUEST)["jnoise"], 6))) == 1
+
+
+def test_deimos_uses_the_deimos_sky_model():
+    """spec_calcs2n.pro's flg_sky = 1 branch was dead code.
+
+    It tested `str_instr.grating EQ '1200'`, but x_initdeimos.pro only ever set
+    '600Z', '900Z', '1200G' or '1200B', so the 1200-line sky model was never
+    selected and DEIMOS always got flg_sky = 0.
+    """
+    from obscalc.instruments.deimos import GRATINGS
+    from obscalc.sky import sky_for
+
+    assert "1200" not in GRATINGS
+    assert sky_for("KeckII", "DEIMOS").model == "deimos600"
 
 
 def test_kast_template_run():

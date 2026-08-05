@@ -2,6 +2,13 @@
 
 from .apf import DECKERS, APFBackend, apf_spectrograph, apf_thruput
 from .base import Backend, ParameterError
+from .deimos import (
+    CENTRAL_WAVES,
+    DeimosBackend,
+    deimos_spectrograph,
+    deimos_thruput,
+)
+from .deimos import GRATINGS as DEIMOS_GRATINGS
 from .hires import EPOCHS, HiresBackend, hires_spectrograph, hires_thruput
 from .hires import DECKERS as HIRES_DECKERS
 from .kast import (
@@ -17,6 +24,7 @@ from .kast import (
 #: Registering a new instrument here is all :mod:`obscalc.webapi` needs.
 BACKENDS = {
     "apf": APFBackend(),
+    "deimos": DeimosBackend(),
     "hires": HiresBackend(),
     "kast": KastBackend(),
 }
@@ -40,8 +48,13 @@ __all__ = [
     "BACKENDS",
     "APFBackend",
     "Backend",
+    "CENTRAL_WAVES",
     "DECKERS",
+    "DEIMOS_GRATINGS",
     "DICHROICS",
+    "DeimosBackend",
+    "deimos_spectrograph",
+    "deimos_thruput",
     "EPOCHS",
     "GRATINGS",
     "GRISMS",
