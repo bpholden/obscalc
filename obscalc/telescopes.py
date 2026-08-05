@@ -21,7 +21,24 @@ def lick_telescope():
     return Telescope(name="Lick-3m", area=63617.0, plate_scale=1.379)
 
 
-TELESCOPES = {"APF": apf_telescope, "Lick-3m": lick_telescope}
+def keck_telescope(name="KeckI"):
+    """Keck I or II, from ``x_initkeck.pro``.
+
+    The two are identical here.  ``x_initkeck.pro`` left ``name`` blank and each
+    instrument's init routine filled it in afterwards, which is what
+    ``spec_calcs2n``'s extinction and sky dispatch keys on, so it is required.
+    """
+    if name not in ("KeckI", "KeckII"):
+        raise ValueError(f"name must be 'KeckI' or 'KeckII', got {name!r}")
+    return Telescope(name=name, area=723674.0, plate_scale=1.379)
+
+
+TELESCOPES = {
+    "APF": apf_telescope,
+    "Lick-3m": lick_telescope,
+    "KeckI": lambda: keck_telescope("KeckI"),
+    "KeckII": lambda: keck_telescope("KeckII"),
+}
 
 
 def telescope(name):

@@ -216,6 +216,23 @@ instead of 2.7 m/s for a V=9 G star in 600 s. Multiplying a logarithm by
 own logarithm once. **This changes a number the web UI displays**; the exposure
 meter reading is unaffected.
 
+**Mauna Kea's analytic sky fallback is gone.** `maunakea_sky.pro` interpolated an
+empirical measurement where one existed and otherwise fell back to a table of
+Vega-system sky brightness against wavelength and moon phase, bilinearly
+interpolated. That fallback is removed by decision: empirical measurements only.
+Two consequences, both documented in `sky.py`:
+
+- The `/NOEMPIR` switch no longer exists. It never worked anyway — the keyword
+  was declared `NOEMPIRI=noempiri` but tested as `keyword_set(NOEMPIRIC)`, so
+  every caller asking to skip the empirical model silently got it. Removing the
+  fallback also disposes of the second bug in that routine, where the moon-phase
+  index reused `ngd` from the preceding wavelength search.
+- **There is no moon-phase dependence for Mauna Kea at all**, and nothing
+  measured blueward of 5000 Å. `spec_calcs2n.pro` already forced
+  `phase = 0L ;; Only New Moon so far` for DEIMOS, ESI and LRIS, so this changes
+  nothing for those; it is a change for Keck I and HIRES, which passed a real
+  phase to a table that only mattered outside the empirical range.
+
 **Kast's per-detector read noise was clobbered.** `x_initkast.pro` says 3.7
 electrons for the blue detector and 3.8 for the red, but wrote
 `kastinstr.readno = 3.7` followed by `kastinstr.readno = 3.8` on a two-element
@@ -250,6 +267,29 @@ is why slit loss versus seeing is a staircase rather than a smooth curve.
 one, while `apf_calcs2n_wrapper.pro` filled `bins` from the first character of
 `"1x1"` and `bind` from the second. Both conventions are preserved;
 `structures.parse_binning` is the single place that maps the string.
+
+### Data problem found, not fixed here
+
+`mkea_sky_LRIS_both.fits` — `flg_sky = 2`, the model `maunakea_sky.pro` selects
+for LRIS — **is not in the same units as the other sky models** and is therefore
+not offered. Its fluxes have a median of 0.23 where the two DEIMOS files sit near
+5e-18, and there is no `BUNIT` to say what they are. Put through the f_lambda
+conversion the IDL applies to every model, it yields sky brightnesses near −19 AB
+mag/arcsec², which is unphysical; `maunakea_sky.pro` produces the same nonsense.
+The file and that routine were both last modified 2025-03-12, so this looks
+unfinished rather than intended. Asking for it raises with that explanation, and
+`sky.median_sky_magnitude` exists to catch the same mistake in a future file.
+
+This leaves the usable Mauna Kea coverage at:
+
+| Model | `flg_sky` | Covers |
+| --- | --- | --- |
+| `deimos600` (default) | 0 | 5001–9999 Å |
+| `deimos1200` | 1 | 6281–9329 Å |
+| `lris` | 2 | unusable, see above |
+
+So a Keck instrument working blueward of 5000 Å currently has no measured sky to
+interpolate; outside a model's range the nearest measured value is held.
 
 ### Known bug in expcalc, not fixed here
 
@@ -291,6 +331,7 @@ would turn this into a real regression test.
 | `data/thruput/sens_APF_nov2016.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; a standard star observed by S. Vogt |
 | `data/thruput/sens_Kast*.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; blue from 2011 Aug 29, red from 2009 Mar 18 |
 | `data/sky/lick_sky_d55_2011aug29.fits.gz` | xidl `Obs/Sky/Empirical`; one dark-sky measurement at Mt Hamilton |
+| `data/sky/mkea_sky_*.fits.gz` | xidl `Obs/Sky/Empirical`; new-moon Mauna Kea sky from DEIMOS data |
 | `data/extinction/mthamextinct.dat` | xidl `Spec/Longslit/calib/extinction` |
 | `data/filters/` | expcalc `Data/filters` (Buser, Cousins, SDSS, Gaia) |
 | `data/templates/` | expcalc `Data/templates` (Pickles library, SN Ia, QSO, CALSPEC Vega) |
@@ -300,21 +341,19 @@ accepts a `phase` argument and ignores it, exactly as the IDL did.
 
 ## Scope
 
-APF and Kast. Both sit at Mt Hamilton, so both use `mtham_trans` and
-`mtham_sky`. `atmosphere.extinction_for` and `sky.sky_for` raise
-`NotImplementedError` for any other telescope rather than quietly substituting
-the wrong site.
+Two instruments: APF and Kast, both at Mt Hamilton using `mtham_trans` and
+`mtham_sky`.
 
-The remaining instruments the web ETC serves — LRIS, ESI, DEIMOS and HIRES — are
-all on Keck, so they need `maunakea_trans.pro` and `maunakea_sky.pro` ported
-first. `maunakea_sky.pro` carries two further bugs, catalogued in
-`PYTHON_PORT_PLAN.md` in the xidl tree, that nothing here reaches yet:
+Four sites are supported for extinction and sky — APF, Lick-3m, Keck I and
+Keck II — so the Mauna Kea groundwork for the remaining Keck instruments (LRIS,
+ESI, DEIMOS, HIRES) is in place and tested. `atmosphere.extinction_for` and
+`sky.sky_for` raise `NotImplementedError` for any other telescope rather than
+quietly substituting the wrong site.
 
-- Its `/NOEMPIR` keyword is declared `NOEMPIRI=noempiri` but tested as
-  `keyword_set(NOEMPIRIC)`, so every caller asking to skip the empirical model
-  silently gets it anyway.
-- The moon-phase interpolation reuses `ngd` from the preceding wavelength search
-  when choosing the phase index.
+`sky_for` takes an instrument name as well as a telescope, mirroring the nested
+`case str_instr.name` inside `spec_calcs2n.pro`'s Keck II branch, because Keck
+chose its sky model per instrument.
 
-Both will need a decision on whether to reproduce or fix them before Keck
-instruments can be added.
+What each Keck instrument still needs: its `x_init*` definition, its `*_thruput`
+curve and sensitivity files, a `Backend`, and a CLI module. LRIS is the most
+involved — `lris_thruput.pro` branches on both dichroic and grating.

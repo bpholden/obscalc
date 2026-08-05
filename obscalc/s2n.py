@@ -167,7 +167,8 @@ def spec_calcs2n(wave, thru, str_tel, str_instr, str_obs):
 
     extinct = extinction_for(str_tel.name)(wave)
     slit1 = slit0 * 10.0 ** (-0.4 * extinct * air)
-    magsky = sky_for(str_tel.name)(wave, phase)
+    # Keck picked its sky model per instrument, so the name is part of the key.
+    magsky = sky_for(str_tel.name, str_instr.name)(wave, phase)
 
     # A template plus a normalising filter overrides the flat zero point.
     if str_obs.template and str_obs.filter:

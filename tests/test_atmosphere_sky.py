@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from obscalc.atmosphere import _extinction_table, extinction_for, mtham_trans
-from obscalc.sky import _lick_sky, mtham_sky, sky_for
+from obscalc.sky import _LICK_FILE, _read_sky, mtham_sky, sky_for
 
 
 def test_extinction_reproduces_table_values_at_nodes():
@@ -25,14 +25,14 @@ def test_extinction_decreases_from_blue_to_red():
 
 def test_extinction_registry_rejects_unsupported_telescopes():
     assert extinction_for("APF") is mtham_trans
-    with pytest.raises(NotImplementedError, match="KeckI"):
-        extinction_for("KeckI")
+    with pytest.raises(NotImplementedError, match="Subaru"):
+        extinction_for("Subaru")
 
 
 def test_sky_registry_rejects_unsupported_telescopes():
     assert sky_for("APF") is mtham_sky
-    with pytest.raises(NotImplementedError, match="KeckII"):
-        sky_for("KeckII")
+    with pytest.raises(NotImplementedError, match="Subaru"):
+        sky_for("Subaru")
 
 
 def test_sky_brightness_is_plausible_across_the_apf_range():
@@ -51,7 +51,7 @@ def test_sky_ignores_moon_phase():
 
 
 def test_sky_below_the_table_uses_the_bluest_measurement():
-    sky_wave, sky_flam = _lick_sky()
+    sky_wave, sky_flam = _read_sky(_LICK_FILE)
     blue = sky_wave.min() - 100.0
     # The fix for mtham_sky.pro:56: below the table, hold the first flux value.
     expected_fnu = sky_flam[0] / 3e10 * blue * (blue * 1e-8)
