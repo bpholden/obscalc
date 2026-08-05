@@ -56,8 +56,12 @@ def test_lick_telescope_values():
 
 
 def test_pixel_scale_is_the_same_on_both_sides():
-    # Both channels use MAG 20.9 and 15 micron pixels in x_initkast, giving
-    # 0.43"/pixel.  The IDL comment claiming 0.78" on the red side is stale.
+    """Both channels are 0.43"/pixel, per the current instrument documentation.
+
+    MAG 20.9 with 15 micron pixels at 1.379"/mm gives 0.4323" on each side.  The
+    "(0.78")" comment on the red side in x_initkast.pro is out of date and
+    refers to the pre-upgrade red CCD.
+    """
     blue, red = kast_spectrograph()
     expected = 1.379 * 20.9 * 0.015
     assert blue.scale_perp == pytest.approx(expected)

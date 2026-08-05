@@ -102,10 +102,10 @@ def kast_spectrograph(
             bins=bins,
             bind=bind,
         )
-        # Both channels use the same magnification and pixel size in the IDL, so
-        # both come out at 0.43"/pixel.  The comment on the red side says 0.78",
-        # which was true of the pre-upgrade red CCD; the code has always
-        # computed 0.43" and that is kept here.
+        # Both channels use the same magnification and pixel size, giving
+        # 0.43"/pixel on each, which matches the current instrument
+        # documentation.  The "(0.78")" comment on the red side in
+        # x_initkast.pro is out of date and describes the pre-upgrade red CCD.
         instr.scale_perp = tel.plate_scale * instr.mag_perp * (
             instr.pixel_size / 1000.0
         )
