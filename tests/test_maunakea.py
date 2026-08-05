@@ -1,7 +1,8 @@
-"""Mauna Kea extinction and the empirical-only sky model.
+"""Mauna Kea extinction and the empirical-only sky models.
 
-The analytic moon-phase fallback in maunakea_sky.pro is deliberately absent, so
-these tests pin that down as much as they check the physics.
+The analytic moon-phase fallback in maunakea_sky.pro is deliberately absent, and
+the LRIS sky frames have their throughput divided back out, so these tests pin
+down both decisions as much as they check the physics.
 """
 
 import numpy as np
@@ -21,12 +22,16 @@ from obscalc.sky import (
     KECK_INSTRUMENT_MODELS,
     MAUNAKEA_MODELS,
     PLAUSIBLE_SKY_MAG,
-    UNUSABLE_MODELS,
+    RED_VALIDATION,
+    _DEIMOS600_MIN,
+    _LRIS_BLUE_MAX,
+    _read_wcs_spectrum,
     coverage,
     maunakea_sky,
     median_sky_magnitude,
     mtham_sky,
     sky_for,
+    validate_against_deimos,
 )
 from obscalc.telescopes import keck_telescope, telescope
 
@@ -78,7 +83,6 @@ def test_maunakea_extinction_extrapolates_unlike_mtham():
     below = MAUNAKEA_RANGE[0] - 100.0
     assert maunakea_trans([below])[0] > _MAUNAKEA_EXTINCT[0]
 
-    # Mt Hamilton holds its end value instead.
     table_min = 3200.0
     assert mtham_trans([table_min - 500.0]) == pytest.approx(mtham_trans([table_min]))
 
@@ -87,8 +91,8 @@ def test_maunakea_extinction_is_lower_than_mt_hamilton_over_most_of_the_optical(
     for wave in (4000.0, 5000.0, 6000.0, 9000.0):
         assert maunakea_trans([wave])[0] < mtham_trans([wave])[0], wave
     # 7000 A is the exception: the coarse Mauna Kea table sits at 0.10 there
-    # while the Mt Hamilton file gives 0.095.  The tables come from different
-    # sources and are not smooth against each other.
+    # while the Mt Hamilton file gives 0.095.  Different sources, not smooth
+    # against each other.
     assert maunakea_trans([7000.0])[0] > mtham_trans([7000.0])[0]
 
 
@@ -100,37 +104,62 @@ def test_extinction_registry_covers_both_kecks():
         extinction_for("Subaru")
 
 
+# --- reading the LRIS frames -------------------------------------------------
+
+
+def test_lris_frames_are_read_through_their_wcs():
+    """One-dimensional images with CRVAL1/CDELT1, not wavelength arrays."""
+    wave, values = _read_wcs_spectrum("bsky.eps_pang_parcsec.fits")
+    assert wave.size == values.size == 1604
+    assert wave[0] == pytest.approx(3001.8)
+    assert wave[1] - wave[0] == pytest.approx(2.18)
+    assert wave[-1] == pytest.approx(3001.8 + 1603 * 2.18)
+
+
+def test_lris_frames_are_in_detected_electrons_not_flux():
+    """Median near 0.1 e-/s/Ang/arcsec^2, which is why they need the undo.
+
+    Reading them as f_lambda is what gave maunakea_sky.pro's flg_sky = 2 model
+    sky brightnesses around -19 AB mag/arcsec^2.
+    """
+    _, values = _read_wcs_spectrum("bsky.eps_pang_parcsec.fits")
+    assert 0.01 < np.median(values) < 1.0
+
+
 # --- sky models --------------------------------------------------------------
 
 
-def test_flg_sky_records_the_idl_numbering_including_the_unusable_file():
-    # maunakea_sky.pro selected files by a numeric flg_sky.  2 is kept in the
-    # mapping for traceability even though the file behind it is not offered.
-    assert FLG_SKY == {0: "deimos600", 1: "deimos1200", 2: "lris"}
-    assert set(FLG_SKY.values()) - set(MAUNAKEA_MODELS) == set(UNUSABLE_MODELS)
+def test_flg_sky_records_the_idl_numbering():
+    assert FLG_SKY == {0: "deimos600", 1: "deimos1200", 2: "lris_blue"}
+    assert set(FLG_SKY.values()) <= set(MAUNAKEA_MODELS)
 
 
-def test_model_coverage_is_what_the_files_measure():
+def test_model_coverage():
     assert coverage("deimos600") == pytest.approx((5000.6, 9999.0), abs=0.1)
     assert coverage("deimos1200") == pytest.approx((6281.2, 9329.2), abs=0.1)
+    assert coverage("lris_blue") == pytest.approx((3101.9, 4999.0), abs=1.0)
+    assert coverage("combined") == pytest.approx((3101.9, 9999.0), abs=1.0)
     # No argument: the Mt Hamilton measurement.
     assert coverage()[0] == pytest.approx(3163.4, abs=0.1)
 
 
-def test_the_default_model_has_the_widest_usable_coverage():
+def test_the_default_model_has_the_widest_coverage():
     spans = {
         name: coverage(name)[1] - coverage(name)[0] for name in MAUNAKEA_MODELS
     }
     assert max(spans, key=spans.get) == DEFAULT_MAUNAKEA_MODEL
 
 
-def test_nothing_is_measured_blueward_of_5000_angstroms():
-    """The cost of dropping the analytic fallback.
+def test_the_blue_channel_is_the_only_thing_measuring_below_5000_angstroms():
+    """This is what the LRIS frames buy: DEIMOS starts at 5001 A."""
+    assert coverage("lris_blue")[0] < 3200.0
+    assert min(coverage(n)[0] for n in ("deimos600", "deimos1200")) > 5000.0
+    assert coverage(DEFAULT_MAUNAKEA_MODEL)[0] < 3200.0
 
-    Both usable models start in the green, so any Keck instrument working in the
-    blue has no measured Mauna Kea sky to interpolate.
-    """
-    assert min(coverage(name)[0] for name in MAUNAKEA_MODELS) > 5000.0
+
+def test_the_blue_channel_stops_at_the_dichroic_handover():
+    """Past dichroic 500 the blue channel's recovered sky is not reliable."""
+    assert coverage("lris_blue")[1] <= _LRIS_BLUE_MAX
 
 
 def test_unknown_model_is_rejected():
@@ -138,20 +167,7 @@ def test_unknown_model_is_rejected():
         maunakea_sky([5000.0], model="nope")
 
 
-def test_the_lris_model_is_refused_with_its_reason():
-    """mkea_sky_LRIS_both.fits is not in f_lambda like the others.
-
-    Its fluxes have a median of 0.23 against 5e-18 for the DEIMOS files, and the
-    IDL's conversion turns that into roughly -19 AB mag/arcsec^2.
-    """
-    assert "lris" in UNUSABLE_MODELS
-    with pytest.raises(ValueError, match="not in f_lambda"):
-        maunakea_sky([6000.0], model="lris")
-    with pytest.raises(ValueError, match="not in f_lambda"):
-        coverage("lris")
-
-
-def test_every_offered_model_has_physical_units():
+def test_every_model_has_physical_units():
     """A model in the wrong units shows up immediately as a silly median."""
     lo, hi = PLAUSIBLE_SKY_MAG
     for name in MAUNAKEA_MODELS:
@@ -159,49 +175,87 @@ def test_every_offered_model_has_physical_units():
     assert lo < median_sky_magnitude() < hi  # Mt Hamilton
 
 
+def test_the_recovered_blue_sky_is_a_plausible_dark_blue_sky():
+    wave = np.arange(3300.0, 4950.0, 25.0)
+    magsky = maunakea_sky(wave, model="lris_blue")
+    assert np.all(np.isfinite(magsky))
+    # Dark sky at Mauna Kea is around 22.7 AB at B.
+    assert 22.0 < np.median(magsky) < 23.5
+    assert magsky.min() > 20.0
+    assert magsky.max() < 24.5
+
+
+def test_the_recovered_blue_sky_does_not_darken_toward_the_red():
+    """The check that caught the wrong throughput curve.
+
+    Real sky brightness rises slightly toward the red.  Undoing with the
+    300/5000 grism, blazed 1600 A away from the 400/3400 actually used, gave a
+    sky that darkened by 1.4 mag from 4000 to 5000 A.  The 600/4000 curve does
+    not.
+    """
+    blue = maunakea_sky([4000.0], model="lris_blue")[0]
+    red = maunakea_sky([4900.0], model="lris_blue")[0]
+    assert red - blue < 0.5
+
+
+def test_undoing_the_throughput_reproduces_the_deimos_measurement():
+    """The evidence that the method works.
+
+    The red channel adds no coverage the DEIMOS models lack, and is kept purely
+    for this: recovering it with the same-ruling 600/7500 curve agrees with an
+    independent sky measurement to well under a tenth of a magnitude.
+    """
+    offset, scatter = validate_against_deimos("lris_red")
+    assert offset == pytest.approx(RED_VALIDATION[0], abs=0.01)
+    assert scatter == pytest.approx(RED_VALIDATION[1], abs=0.01)
+    assert abs(offset) < 0.15
+    assert scatter < 0.4
+
+
+def test_the_combined_model_joins_without_a_step():
+    """Blue below 5000 A, DEIMOS above 5200, interpolated across the bridge.
+
+    Neither measures 5000-5200: the blue channel has fallen off the dichroic and
+    DEIMOS has not come up off its blue edge, where it reads 24.1 mag at 5001 A
+    against 22.5 at 5200.
+    """
+    wave = np.arange(_LRIS_BLUE_MAX - 200.0, _DEIMOS600_MIN + 200.0, 20.0)
+    magsky = maunakea_sky(wave, model="combined")
+    assert np.all(np.isfinite(magsky))
+    # No discontinuity: successive points stay within a few tenths.
+    assert np.abs(np.diff(magsky)).max() < 0.6
+
+
+def test_the_combined_model_matches_its_two_sources_away_from_the_bridge():
+    for wave, source in ((4000.0, "lris_blue"), (7000.0, "deimos600")):
+        assert maunakea_sky([wave], model="combined")[0] == pytest.approx(
+            maunakea_sky([wave], model=source)[0], abs=0.01
+        )
+
+
 def test_sky_brightness_is_plausible_where_it_is_measured():
     lo, hi = coverage(DEFAULT_MAUNAKEA_MODEL)
     wave = np.arange(lo + 100.0, hi - 100.0, 50.0)
     magsky = maunakea_sky(wave)
     assert np.all(np.isfinite(magsky))
-    # Between the airglow lines a dark sky sits around 21-22; the lines
-    # themselves brighten it to about 17.
     assert magsky.min() > 16.0
-    assert magsky.max() < 24.0
+    assert magsky.max() < 24.5
     assert 20.0 < np.median(magsky) < 23.0
 
 
 def test_moon_phase_is_ignored_entirely():
     """The analytic phase-dependent table is gone; all models are new moon."""
     wave = np.arange(4000.0, 9000.0, 100.0)
-    dark = maunakea_sky(wave, phase=0)
-    full = maunakea_sky(wave, phase=14)
-    assert np.array_equal(dark, full)
+    assert np.array_equal(maunakea_sky(wave, phase=0), maunakea_sky(wave, phase=14))
 
 
 def test_outside_the_measurement_the_nearest_value_is_held():
-    wave_min, wave_max = coverage("deimos600")
-    inside_blue = maunakea_sky([wave_min + 0.5], model="deimos600")
-    below = maunakea_sky([wave_min - 500.0], model="deimos600")
-    # Held in f_lambda, so the magnitude still moves with the lambda^2/c factor;
-    # what matters is that it stays finite and close, not extrapolated away.
+    wave_min, wave_max = coverage("deimos1200")
+    inside = maunakea_sky([wave_min + 0.5], model="deimos1200")
+    below = maunakea_sky([wave_min - 500.0], model="deimos1200")
     assert np.isfinite(below).all()
-    assert abs(below[0] - inside_blue[0]) < 1.0
-
-    above = maunakea_sky([wave_max + 500.0], model="deimos600")
-    assert np.isfinite(above).all()
-
-
-def test_a_narrow_model_does_not_silently_cover_the_blue():
-    """deimos1200 starts at 6281 A, so a blue request is held, not measured.
-
-    This is the cost of dropping the analytic fallback: callers have to check
-    coverage() rather than trusting the number.
-    """
-    lo, _ = coverage("deimos1200")
-    assert lo > 6000.0
-    held = maunakea_sky([4000.0], model="deimos1200")
-    assert np.isfinite(held).all()
+    assert abs(below[0] - inside[0]) < 1.0
+    assert np.isfinite(maunakea_sky([wave_max + 500.0], model="deimos1200")).all()
 
 
 # --- dispatch ----------------------------------------------------------------
@@ -215,7 +269,7 @@ def test_sky_dispatch_is_per_instrument_for_keck():
 
 def test_unlisted_keck_instruments_fall_back_to_the_default():
     # Keck I and HIRES reached the analytic fallback, which no longer exists.
-    # LRIS selected flg_sky = 2, whose file is unusable, so it falls back too.
+    # LRIS selected flg_sky = 2, superseded by the recovered blue model.
     assert sky_for("KeckI", "HIRES").model == DEFAULT_MAUNAKEA_MODEL
     assert sky_for("KeckII", "LRIS").model == DEFAULT_MAUNAKEA_MODEL
     assert sky_for("KeckII", None).model == DEFAULT_MAUNAKEA_MODEL

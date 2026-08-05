@@ -227,11 +227,23 @@ Two consequences, both documented in `sky.py`:
   every caller asking to skip the empirical model silently got it. Removing the
   fallback also disposes of the second bug in that routine, where the moon-phase
   index reused `ngd` from the preceding wavelength search.
-- **There is no moon-phase dependence for Mauna Kea at all**, and nothing
-  measured blueward of 5000 Å. `spec_calcs2n.pro` already forced
-  `phase = 0L ;; Only New Moon so far` for DEIMOS, ESI and LRIS, so this changes
-  nothing for those; it is a change for Keck I and HIRES, which passed a real
-  phase to a table that only mattered outside the empirical range.
+- **There is no moon-phase dependence for Mauna Kea at all.**
+  `spec_calcs2n.pro` already forced `phase = 0L ;; Only New Moon so far` for
+  DEIMOS, ESI and LRIS, so this changes nothing for those; it is a change for
+  Keck I and HIRES, which passed a real phase to a table that only mattered
+  outside the empirical range.
+
+**The LRIS sky frames have their throughput divided back out.**
+`bsky.eps_pang_parcsec.fits` and `rsky.eps_pang_parcsec_onemicron.fits` are in
+electrons/s/Å/arcsec², so they already contain the throughput of the telescope
+and instrument and are strictly valid only for the configuration they were taken
+in. `maunakea_sky.pro` fed them to an f_lambda conversion anyway — its
+`flg_sky = 2` model, `mkea_sky_LRIS_both.fits`, is bit-identical to the two files
+summed across their overlap — which is why it returned about −19 AB mag/arcsec².
+
+Rather than rescale detected counts per configuration, the throughput is undone
+to recover a true surface brightness, which is what the engine wants and what any
+instrument can then use. See below for how well that works.
 
 **Kast's per-detector read noise was clobbered.** `x_initkast.pro` says 3.7
 electrons for the blue detector and 3.8 for the red, but wrote
@@ -268,28 +280,52 @@ one, while `apf_calcs2n_wrapper.pro` filled `bins` from the first character of
 `"1x1"` and `bind` from the second. Both conventions are preserved;
 `structures.parse_binning` is the single place that maps the string.
 
-### Data problem found, not fixed here
+### Recovering the LRIS sky, and how far to trust it
 
-`mkea_sky_LRIS_both.fits` — `flg_sky = 2`, the model `maunakea_sky.pro` selects
-for LRIS — **is not in the same units as the other sky models** and is therefore
-not offered. Its fluxes have a median of 0.23 where the two DEIMOS files sit near
-5e-18, and there is no `BUNIT` to say what they are. Put through the f_lambda
-conversion the IDL applies to every model, it yields sky brightnesses near −19 AB
-mag/arcsec², which is unphysical; `maunakea_sky.pro` produces the same nonsense.
-The file and that routine were both last modified 2025-03-12, so this looks
-unfinished rather than intended. Asking for it raises with that explanation, and
-`sky.median_sky_magnitude` exists to catch the same mistake in a future file.
+The LRIS frames were taken with blue grism 400/3400, red grating 600/5000 and
+dichroic 500, and **no sensitivity measurement for that configuration exists in
+the xidl tree**. The nearest same-ruling D560 curves are used instead, and each
+channel is restricted to where it dominates.
 
-This leaves the usable Mauna Kea coverage at:
+Choosing the curve matters, and blaze wavelength matters more than coverage:
 
-| Model | `flg_sky` | Covers |
+| Channel | Curve used | Rejected alternative |
 | --- | --- | --- |
-| `deimos600` (default) | 0 | 5001–9999 Å |
-| `deimos1200` | 1 | 6281–9329 Å |
-| `lris` | 2 | unusable, see above |
+| blue (400/3400, blaze 3400 Å) | `600/4000 D560` | `300/5000 D560` — blazed 1600 Å away; gives a sky that *darkens* by 1.4 mag from 4000→5000 Å where the real sky brightens |
+| red (600/5000) | `600/7500 D560` | `400/8500 D560` — wider, but off by +0.59 mag |
 
-So a Keck instrument working blueward of 5000 Å currently has no measured sky to
-interpolate; outside a model's range the nearest measured value is held.
+**The red channel is the validation.** It adds no coverage the DEIMOS models
+lack, so it is kept only to check the method: recovering it with `600/7500 D560`
+reproduces the independent DEIMOS 600 sky — a different night, a different
+instrument — to **+0.07 mag median with 0.31 scatter** over 5700–8190 Å.
+`sky.validate_against_deimos()` computes it and a test asserts it. That is the
+main evidence the undo is sound.
+
+The blue channel is the useful one: it is the only Mauna Kea measurement here
+blueward of 5000 Å, giving a median 22.67 AB mag/arcsec² over 3102–4999 Å.
+
+Usable Mauna Kea models:
+
+| Model | Covers | Notes |
+| --- | --- | --- |
+| `combined` (default) | 3102–9999 Å | `lris_blue` below 5000, `deimos600` above 5200 |
+| `lris_blue` | 3102–4999 Å | recovered; stops at the dichroic 500 handover |
+| `deimos600` | 5001–9999 Å | unreliable below ~5200 Å, still ramping off its blue edge |
+| `deimos1200` | 6281–9329 Å | |
+| `lris_red` | 5628–8190 Å | validation only |
+
+Two caveats on `combined`. Nothing measures the **5000–5200 Å bridge** — the blue
+channel has fallen off the dichroic and DEIMOS has not come up off its blue edge
+(24.1 mag at 5001 Å against 22.5 at 5200) — so it is interpolated; the join is
+smooth to better than 0.6 mag between adjacent points. And the blue half carries
+whatever error the mismatched grism curve leaves, which is *not* bounded by the
+red channel's +0.07 mag: that number validates the red curve, not the blue one.
+Supplying the throughput for the as-observed configuration would remove the
+guesswork on both sides.
+
+Outside a model's range the nearest measured value is held.
+`sky.median_sky_magnitude` exists to catch a future file whose units are wrong,
+which is how `mkea_sky_LRIS_both.fits` was caught.
 
 ### Known bug in expcalc, not fixed here
 
@@ -332,6 +368,8 @@ would turn this into a real regression test.
 | `data/thruput/sens_Kast*.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; blue from 2011 Aug 29, red from 2009 Mar 18 |
 | `data/sky/lick_sky_d55_2011aug29.fits.gz` | xidl `Obs/Sky/Empirical`; one dark-sky measurement at Mt Hamilton |
 | `data/sky/mkea_sky_*.fits.gz` | xidl `Obs/Sky/Empirical`; new-moon Mauna Kea sky from DEIMOS data |
+| `data/sky/bsky.*`, `data/sky/rsky.*` | LRIS sky frames, Keck I 2017-05-27/28, in e⁻/s/Å/arcsec²; throughput undone at read time |
+| `data/thruput/sens_LRIS*.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; used to undo the LRIS sky throughput |
 | `data/extinction/mthamextinct.dat` | xidl `Spec/Longslit/calib/extinction` |
 | `data/filters/` | expcalc `Data/filters` (Buser, Cousins, SDSS, Gaia) |
 | `data/templates/` | expcalc `Data/templates` (Pickles library, SN Ia, QSO, CALSPEC Vega) |
@@ -346,9 +384,9 @@ Two instruments: APF and Kast, both at Mt Hamilton using `mtham_trans` and
 
 Four sites are supported for extinction and sky — APF, Lick-3m, Keck I and
 Keck II — so the Mauna Kea groundwork for the remaining Keck instruments (LRIS,
-ESI, DEIMOS, HIRES) is in place and tested. `atmosphere.extinction_for` and
-`sky.sky_for` raise `NotImplementedError` for any other telescope rather than
-quietly substituting the wrong site.
+ESI, DEIMOS, HIRES) is in place and tested, with usable sky coverage from 3102 to
+9999 Å. `atmosphere.extinction_for` and `sky.sky_for` raise `NotImplementedError`
+for any other telescope rather than quietly substituting the wrong site.
 
 `sky_for` takes an instrument name as well as a telescope, mirroring the nested
 `case str_instr.name` inside `spec_calcs2n.pro`'s Keck II branch, because Keck
