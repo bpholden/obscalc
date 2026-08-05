@@ -25,7 +25,7 @@ import numpy as np
 
 from .instruments import BACKENDS, ParameterError, get_backend
 from .photometry import TemplateFilterMismatch
-from .s2n import spec_calcs2n
+from .s2n import run_sides
 from .structures import Observation, parse_binning
 
 #: Wording the existing web UI shows for a template/filter that do not overlap.
@@ -164,11 +164,6 @@ def calculate(params, wvmn=None, wvmx=None, dwv=10.0):
         return payload
 
     backend = get_backend(values["inst"])
-    try:
-        tel, instr = backend.configure(values)
-    except ParameterError as exc:
-        payload["msg"] = str(exc)
-        return payload
 
     obs = Observation(
         seeing=values["seeing"],
@@ -181,28 +176,37 @@ def calculate(params, wvmn=None, wvmx=None, dwv=10.0):
         filter=values["ffilter"],
     )
 
-    default_min, default_max = backend.wavelength_range(instr)
+    if backend.default_range is None:
+        raise NotImplementedError(
+            f"backend {backend.name!r} does not declare a default_range"
+        )
+    default_min, default_max = backend.default_range
     wvmn = default_min if wvmn is None else float(wvmn)
     wvmx = default_max if wvmx is None else float(wvmx)
     count = int((wvmx - wvmn) / dwv) + 1
     wave = wvmn + np.arange(count) * dwv
 
     try:
-        result = spec_calcs2n(wave, backend.thruput(wave, instr), tel, instr, obs)
+        tel, sides = backend.sides(wave, values)
+    except ParameterError as exc:
+        payload["msg"] = str(exc)
+        return payload
+
+    try:
+        result = run_sides(wave, tel, sides, obs)
         extras = backend.extras(result, obs)
     except TemplateFilterMismatch:
         payload["errormsg"] = NO_OVERLAP_MESSAGE
         return payload
-
-    # The IDL wrapper broadcast the scalar read noise across the grid.
-    noise = np.full(result.wave.shape, result.noise)
 
     payload["wave"] = [float(w) for w in result.wave]
     for key, series in (
         ("s2n", result.sn),
         ("obj", result.star),
         ("sky", result.sky),
-        ("noise", noise),
+        # Read noise is per detector, so this is piecewise constant across the
+        # dichroic split rather than a single value.
+        ("noise", result.noise),
     ):
         payload[key] = _pairs(result.wave, series)
         payload["j" + key] = [float(v) for v in series]
@@ -210,7 +214,7 @@ def calculate(params, wvmn=None, wvmx=None, dwv=10.0):
     payload["cts"] = [
         [float(w), float(o), float(s), float(n), float(sn)]
         for w, o, s, n, sn in zip(
-            result.wave, result.star, result.sky, noise, result.sn
+            result.wave, result.star, result.sky, result.noise, result.sn
         )
     ]
 

@@ -24,8 +24,9 @@ def test_wavelength_grid_rejects_bad_ranges():
 def test_default_run_succeeds(capsys):
     assert main([]) == 0
     out = capsys.readouterr().out
-    assert "Median S/N" in out
-    assert "Slit transmission" in out
+    assert "median S/N" in out
+    assert "slit transmission" in out
+    assert "Iodine region counts" in out
 
 
 def test_template_requires_a_filter(capsys):
@@ -90,22 +91,25 @@ def test_infil_overrides_command_line_defaults(tmp_path, capsys):
     assert 'SEEING   = 0.8"' in out
     assert "EXPTIME  = 300 s" in out
     assert "BINNING  = 2x2" in out
-    assert 'DECKER   = 1" x 8"' in out
+    assert 'SLIT     = 1" x 8"' in out
 
 
 def test_results_table_carries_the_scalars_in_metadata():
     from obscalc import Observation, apf_spectrograph, apf_telescope, apf_thruput
-    from obscalc.s2n import spec_calcs2n
+    from obscalc.s2n import Side, run_sides
 
     wave = np.arange(4000.0, 7000.0, 50.0)
-    result = spec_calcs2n(
+    instr = apf_spectrograph()
+    result = run_sides(
         wave,
-        apf_thruput(wave),
         apf_telescope(),
-        apf_spectrograph(),
+        [Side("", instr, np.arange(wave.size), apf_thruput(wave))],
         Observation(seeing=1.2),
     )
     table = results_table(result)
-    assert table.meta["nsky"] == pytest.approx(result.nsky)
-    assert table.meta["readno"] == pytest.approx(result.noise)
+    # One detector, so the metadata keys are unprefixed.
+    single = result.sides[0][2]
+    assert table.meta["nsky"] == pytest.approx(single.nsky)
+    assert table.meta["readno"] == pytest.approx(single.noise)
+    assert table.meta["R"] == pytest.approx(instr.R)
     assert len(table) == wave.size

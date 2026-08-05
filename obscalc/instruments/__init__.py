@@ -2,11 +2,20 @@
 
 from .apf import DECKERS, APFBackend, apf_spectrograph, apf_thruput
 from .base import Backend, ParameterError
+from .kast import (
+    DICHROICS,
+    GRATINGS,
+    GRISMS,
+    KastBackend,
+    kast_spectrograph,
+    kast_thruput,
+)
 
 #: Backends the web layer can serve, keyed on the ``inst`` request parameter.
 #: Registering a new instrument here is all :mod:`obscalc.webapi` needs.
 BACKENDS = {
     "apf": APFBackend(),
+    "kast": KastBackend(),
 }
 
 
@@ -29,9 +38,15 @@ __all__ = [
     "APFBackend",
     "Backend",
     "DECKERS",
+    "DICHROICS",
+    "GRATINGS",
+    "GRISMS",
+    "KastBackend",
     "ParameterError",
     "apf_spectrograph",
     "apf_thruput",
     "available_instruments",
     "get_backend",
+    "kast_spectrograph",
+    "kast_thruput",
 ]

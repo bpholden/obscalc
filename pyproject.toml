@@ -20,6 +20,8 @@ test = ["pytest>=7.0"]
 
 [project.scripts]
 obscalc = "obscalc.apf_cli:main"
+obscalc-apf = "obscalc.apf_cli:main"
+obscalc-kast = "obscalc.kast_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["obscalc*"]

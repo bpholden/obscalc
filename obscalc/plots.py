@@ -1,8 +1,21 @@
-"""Quality-assurance plots for a signal-to-noise calculation."""
+"""Quality-assurance plots for a signal-to-noise calculation.
+
+Takes a :class:`~obscalc.s2n.StackedResult`, so a dichroic instrument's two sides
+are drawn on one set of axes with the crossover marked.
+"""
 
 import numpy as np
 
 from .slit import gauss_slit
+
+
+def _mark_sides(ax, result):
+    """Draw a line at each dichroic crossover."""
+    if len(result.sides) < 2:
+        return
+    for _, index, _ in result.sides[1:]:
+        if index.size:
+            ax.axvline(result.wave[index].min(), color="0.6", lw=0.8, ls=":")
 
 
 def _panel_signal_to_noise(ax, result):
@@ -21,8 +34,16 @@ def _panel_signal_to_noise(ax, result):
 def _panel_counts(ax, result):
     ax.plot(result.wave, result.star, label="object")
     ax.plot(result.wave, result.sky, label="sky")
-    ax.axhline(result.noise**2, color="0.4", linestyle=":", label="read noise$^2$")
-    ax.axhline(result.ndark, color="0.7", linestyle="-.", label="dark")
+    # Read noise and dark are per detector, so these are steps rather than
+    # horizontal lines once a dichroic is involved.
+    ax.plot(
+        result.wave,
+        result.noise**2,
+        color="0.4",
+        linestyle=":",
+        label="read noise$^2$",
+    )
+    ax.plot(result.wave, result.ndark, color="0.7", linestyle="-.", label="dark")
     ax.set_yscale("log")
     ax.set_ylabel("counts / binned pixel")
     ax.set_title("Noise budget")
@@ -59,43 +80,55 @@ def _panel_slit_loss(ax, instr, obs):
     )
     ax.set_xlabel("seeing FWHM (arcsec)")
     ax.set_ylabel("fraction through slit")
-    ax.set_title(
-        f"Slit losses ({instr.swidth:g}\" x {instr.sheight:g}\" slit)"
-    )
+    ax.set_title(f"Slit losses ({instr.swidth:g}\" x {instr.sheight:g}\" slit)")
     ax.legend(fontsize="small")
 
 
+def _default_title(result, instr, obs):
+    first = result.sides[0][2]
+    system = "Vega" if first.mtype == 1 else "AB"
+    parts = []
+    if instr is not None:
+        parts.append(f"{instr.name}  slit {instr.swidth:g}\"x{instr.sheight:g}\"")
+    parts.append(f"{first.binr}x{first.binc} binning")
+    parts.append(f"mag {first.mstar:g} {system}")
+    parts.append(f"{obs.exptime:g} s")
+    parts.append(f"airmass {obs.airmass:g}")
+    parts.append(f"seeing {obs.seeing:g}\"")
+    if len(result.sides) > 1:
+        dispersers = " + ".join(
+            f"{name} R={side.R:.0f}" for name, _, side in result.sides
+        )
+        parts.append(dispersers)
+    return "  ".join(parts)
+
+
 def qa_figure(result, instr, obs, title=None):
-    """Six-panel QA figure for a :class:`~obscalc.s2n.S2NResult`.
+    """Six-panel QA figure for a :class:`~obscalc.s2n.StackedResult`.
 
     Returns the matplotlib ``Figure``; the caller decides whether to save or
-    show it.
+    show it.  ``instr`` supplies the slit geometry for the last panel; for a
+    double spectrograph either side will do, since they share a slit.
     """
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(3, 2, figsize=(11, 11), sharex=False)
+    fig, axes = plt.subplots(3, 2, figsize=(11, 11))
 
     _panel_signal_to_noise(axes[0, 0], result)
     _panel_counts(axes[0, 1], result)
     _panel_throughput(axes[1, 0], result)
     _panel_extinction(axes[1, 1], result)
     _panel_sky_brightness(axes[2, 0], result)
-    _panel_slit_loss(axes[2, 1], instr, obs)
+    if instr is not None:
+        _panel_slit_loss(axes[2, 1], instr, obs)
+    else:
+        axes[2, 1].set_axis_off()
 
-    for ax in axes[:2, :].ravel():
+    for ax in list(axes[:2, :].ravel()) + [axes[2, 0]]:
         ax.set_xlabel("wavelength (Angstroms)")
-    axes[2, 0].set_xlabel("wavelength (Angstroms)")
+        _mark_sides(ax, result)
 
-    if title is None:
-        system = "Vega" if result.mtype == 1 else "AB"
-        title = (
-            f"{instr.name}  slit {instr.swidth:g}\"x{instr.sheight:g}\"  "
-            f"{result.binr}x{result.binc} binning  "
-            f"mag {result.mstar:g} {system}  "
-            f"{obs.exptime:g} s  airmass {obs.airmass:g}  "
-            f"seeing {obs.seeing:g}\""
-        )
-    fig.suptitle(title, fontsize="medium")
+    fig.suptitle(title or _default_title(result, instr, obs), fontsize="medium")
     fig.tight_layout(rect=(0, 0, 1, 0.98))
     return fig
 

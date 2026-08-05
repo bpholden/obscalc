@@ -4,21 +4,32 @@ Signal-to-noise calculator for slit spectrographs. A Python port of the exposure
 time calculator in [xidl](https://www.ucolick.org/~xavier/IDL/), whose entry
 point was `Obs/S2N/spec_calcs2n.pro`.
 
-The first supported configuration is the Levy spectrograph on the Automated
-Planet Finder.
+Supported instruments:
 
-The engine is generic; everything named `apf_*` is not. `s2n.py`, `slit.py`,
-`photometry.py`, `idl_compat.py`, `structures.py` and `webapi.py` know nothing
-about any particular instrument, while `instruments/apf.py`, `apf_extras.py` and
-`apf_cli.py` are APF only. Three registries hold the instrument-specific
-knowledge: `atmosphere.EXTINCTION` and `sky.SKY`, keyed on telescope name, and
-`instruments.BACKENDS`, keyed on the `inst` parameter the web forms post.
+| Instrument | Telescope | Channels | Command |
+| --- | --- | --- | --- |
+| Levy | APF 2.4 m | one | `obscalc-apf` (also `obscalc`) |
+| Kast | Shane 3 m, Lick | two, split by a dichroic | `obscalc-kast` |
+
+The engine is generic; everything named `apf_*` or `kast_*` is not. `s2n.py`,
+`slit.py`, `photometry.py`, `idl_compat.py`, `structures.py`, `cli_common.py`,
+`plots.py` and `webapi.py` know nothing about any particular instrument. Three
+registries hold what is instrument specific: `atmosphere.EXTINCTION` and
+`sky.SKY`, keyed on telescope name, and `instruments.BACKENDS`, keyed on the
+`inst` parameter the web forms post.
 
 Adding an instrument means: a definition and throughput curve under
 `instruments/`, a `Backend` subclass (see `instruments/base.py`) registered in
 `BACKENDS`, an extinction curve and sky model in the other two registries, and
-its own command line module beside `apf_cli.py`. No edit to `webapi.py` or
+its own command line module using `cli_common`. No edit to `webapi.py` or
 `s2n.py` should be required.
+
+A backend describes *detectors* rather than assuming there is one. Each returns a
+list of `Side` objects — which wavelengths that detector records, its instrument
+parameters and its throughput there — and `s2n.run_sides` runs the engine once
+per side and stacks the results onto a shared grid. Read noise, dark counts and
+resolving power then vary across the dichroic split, exactly as
+`kast_calcs2n.pro` arranged by hand.
 
 ## Install
 
@@ -66,6 +77,57 @@ RV precision 2.66 m/s
 `--list-filters` and `--list-templates` show what is bundled. `--infil` reads the
 legacy `CARD value` parameter files. Results tables are written through
 `astropy.io.ascii` or `astropy.io.fits`, chosen by the output extension.
+
+### Kast
+
+```sh
+obscalc-kast --mag 18 --mtype 2 --exptime 1800 \
+             --dichroic d55 --grism G2 --grating 600/7500 --slitwidth 1.5
+```
+
+Both sides are reported separately, then together:
+
+```
+3150-5490 A [blue]: R = 4254, 3.47 pixels across the slit, 11 rows extracted, ...
+  slit transmission 0.6447, read noise 12.27 e-, dark 0.01 e-
+  median S/N 23.34 per binned pixel, 43.47 per resolution element
+
+5500-8000 A [red]: R = 3164, 3.47 pixels across the slit, 11 rows extracted, ...
+  slit transmission 0.6447, read noise 12.60 e-, dark 0.01 e-
+  median S/N 27.70 per binned pixel, 51.60 per resolution element
+```
+
+Note that `--slitwidth` is a **width in arcsec** for Kast but a **decker name**
+for APF, following the two IDL wrappers.
+
+**Watch the disperser/dichroic pairing.** Each grism was measured against one
+dichroic, and the throughput measurements do not span the default 3150-8000 Å
+grid:
+
+| Disperser | Measured over |
+| --- | --- |
+| G2 (blue) | 3221-5241 Å |
+| G3 (blue) | 3169-4429 Å |
+| 600/7500 (red) | 5136-7632 Å |
+
+`kast_thruput.pro` extrapolated past the red end of a measurement and then
+clamped the result to a small positive floor, so the counts there look plausible
+but mean nothing. That behaviour is preserved, and the drivers now say where it
+bites:
+
+```
+WARNING: no usable throughput over 4560-5490, 7690-8000 A (26% of the range).
+```
+
+That example is `--grism G3 --dichroic d55`, the worst pairing: G3 is measured
+only to 4429 Å but d55 asks the blue side to work up to 5500 Å. `--grism G3
+--dichroic d46` drops it to 7%, and every configuration flags 7690-8000 Å
+because the red grating measurement stops at 7632 Å. Narrow the range with
+`--wvmx` to work only where there are measurements.
+
+G1 has a resolving power in `x_initkast.pro` but no throughput measurement at
+all, so `kast_thruput.pro` hit an `else: stop` for the very grism
+`x_initkast.pro` defaulted to. It is not offered here.
 
 ## Library
 
@@ -154,6 +216,13 @@ instead of 2.7 m/s for a V=9 G star in 600 s. Multiplying a logarithm by
 own logarithm once. **This changes a number the web UI displays**; the exposure
 meter reading is unaffected.
 
+**Kast's per-detector read noise was clobbered.** `x_initkast.pro` says 3.7
+electrons for the blue detector and 3.8 for the red, but wrote
+`kastinstr.readno = 3.7` followed by `kastinstr.readno = 3.8` on a two-element
+array, so the second assignment overwrote both and every Kast calculation used
+3.8 on each side. The per-detector values are used here. (The same pattern
+appears in `x_initapflowspec.pro`, which is not ported.)
+
 **A `-99` from `single_spec2mag` propagated silently.** A template that does not
 cover its normalising filter now raises `TemplateFilterMismatch` instead of
 carrying the sentinel into the count rates. The web adapter turns that into the
@@ -220,6 +289,7 @@ would turn this into a real regression test.
 | Path | Source |
 | --- | --- |
 | `data/thruput/sens_APF_nov2016.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; a standard star observed by S. Vogt |
+| `data/thruput/sens_Kast*.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; blue from 2011 Aug 29, red from 2009 Mar 18 |
 | `data/sky/lick_sky_d55_2011aug29.fits.gz` | xidl `Obs/Sky/Empirical`; one dark-sky measurement at Mt Hamilton |
 | `data/extinction/mthamextinct.dat` | xidl `Spec/Longslit/calib/extinction` |
 | `data/filters/` | expcalc `Data/filters` (Buser, Cousins, SDSS, Gaia) |
@@ -230,9 +300,21 @@ accepts a `phase` argument and ignores it, exactly as the IDL did.
 
 ## Scope
 
-APF only. `atmosphere.extinction_for` and `sky.sky_for` raise
+APF and Kast. Both sit at Mt Hamilton, so both use `mtham_trans` and
+`mtham_sky`. `atmosphere.extinction_for` and `sky.sky_for` raise
 `NotImplementedError` for any other telescope rather than quietly substituting
-the wrong site. Adding Keck or Lick means porting `maunakea_trans.pro` and
-`maunakea_sky.pro` — note that the latter has two further bugs, catalogued in
-`PYTHON_PORT_PLAN.md` in the xidl tree, that were out of scope here because the
-APF path never reaches them.
+the wrong site.
+
+The remaining instruments the web ETC serves — LRIS, ESI, DEIMOS and HIRES — are
+all on Keck, so they need `maunakea_trans.pro` and `maunakea_sky.pro` ported
+first. `maunakea_sky.pro` carries two further bugs, catalogued in
+`PYTHON_PORT_PLAN.md` in the xidl tree, that nothing here reaches yet:
+
+- Its `/NOEMPIR` keyword is declared `NOEMPIRI=noempiri` but tested as
+  `keyword_set(NOEMPIRIC)`, so every caller asking to skip the empirical model
+  silently gets it anyway.
+- The moon-phase interpolation reuses `ngd` from the preceding wavelength search
+  when choosing the phase index.
+
+Both will need a decision on whether to reproduce or fix them before Keck
+instruments can be added.

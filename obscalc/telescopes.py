@@ -13,7 +13,15 @@ def apf_telescope():
     return Telescope(name="APF", area=42053.0, plate_scale=5.8241)
 
 
-TELESCOPES = {"APF": apf_telescope}
+def lick_telescope():
+    """The Shane 3 m at Lick, from ``x_initlick.pro``.
+
+    The plate scale is marked "should confirm; secondary dependent" in the IDL.
+    """
+    return Telescope(name="Lick-3m", area=63617.0, plate_scale=1.379)
+
+
+TELESCOPES = {"APF": apf_telescope, "Lick-3m": lick_telescope}
 
 
 def telescope(name):

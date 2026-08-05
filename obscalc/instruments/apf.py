@@ -11,6 +11,7 @@ from astropy.io import fits
 
 from .. import config
 from ..idl_compat import interpol
+from ..s2n import Side
 from ..structures import Instrument
 from ..telescopes import apf_telescope
 from .base import Backend, ParameterError
@@ -29,6 +30,9 @@ DECKERS = {
 #: Most recent throughput measurement.  ``apf_thruput.pro`` carried commented-out
 #: paths for the earlier epochs; those files are not bundled here.
 DEFAULT_SENS_FILE = "sens_APF_nov2016.fits"
+
+#: Default wavelength grid, from ``x_initapfspec.pro``.
+DEFAULT_RANGE = (3742.0, 7700.0)
 
 
 def set_decker(instr, decker):
@@ -108,12 +112,14 @@ class APFBackend(Backend):
     """Web backend for the APF.
 
     ``slitwidth`` is a decker letter here, not a width in arcsec -- the APF form
-    posts ``N``/``S``/``M``/``W``/``O``/``T``/``B``.
+    posts ``N``/``S``/``M``/``W``/``O``/``T``/``B``.  A single detector covers the
+    whole range, so there is one side.
     """
 
     name = "apf"
+    default_range = DEFAULT_RANGE
 
-    def configure(self, values):
+    def sides(self, wave, values):
         decker = str(values.get("slitwidth") or "W").strip()
         if decker not in DECKERS:
             raise ParameterError(
@@ -127,16 +133,15 @@ class APFBackend(Backend):
             bind=values["bind"],
             str_tel=tel,
         )
-        return tel, instr
-
-    def thruput(self, wave, instr):
-        return apf_thruput(wave)
+        index = np.arange(np.size(wave))
+        return tel, [Side("", instr, index, apf_thruput(wave))]
 
     def extras(self, result, obs):
         # Imported here because apf_extras reads back from a finished result.
         from ..apf_extras import apf_extras
 
-        values = apf_extras(result, obs)
+        _, _, single = result.sides[0]
+        values = apf_extras(single, obs)
         return {
             "i2counts": values.i2counts,
             "exp": values.expmeter,

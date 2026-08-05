@@ -15,6 +15,61 @@ from .slit import gauss_slit
 
 
 @dataclass
+class Side:
+    """One detector of a spectrograph, and the wavelengths it records.
+
+    Single-channel instruments have one side spanning the whole grid.  A
+    dichroic instrument like Kast has two, with different resolutions, read
+    noise and throughput curves, so each needs its own pass through
+    :func:`spec_calcs2n`.
+    """
+
+    name: str  # "blue", "red", or "" when there is only one
+    instr: "object"  # the Instrument for this detector
+    index: np.ndarray  # integer indices into the shared wavelength grid
+    thru: np.ndarray  # throughput at wave[index]
+
+
+@dataclass
+class StackedResult:
+    """Several detectors' results assembled onto one wavelength grid.
+
+    Quantities that are scalars per detector -- read noise, dark counts, the
+    extraction geometry -- become arrays here, piecewise constant across the
+    dichroic split.  This is the shape the IDL wrappers built by hand when they
+    wrote ``noise[0:bsize-1] += b_fstrct.noise``.
+    """
+
+    wave: np.ndarray
+    sn: np.ndarray
+    star: np.ndarray
+    tnoise: np.ndarray
+    sky: np.ndarray
+    thru: np.ndarray
+    extinct: np.ndarray
+    magsky: np.ndarray
+    n0: np.ndarray
+    pixel: np.ndarray
+    projslit: np.ndarray
+    noise: np.ndarray
+    ndark: np.ndarray
+    columns: np.ndarray
+    #: ``(name, index, result)`` for each detector, keeping its scalars.
+    sides: list
+
+    @property
+    def sn_per_resolution_element(self):
+        return self.sn * np.sqrt(self.columns)
+
+    def side(self, name):
+        """The :class:`S2NResult` for one detector, by name."""
+        for side_name, _, result in self.sides:
+            if side_name == name:
+                return result
+        raise KeyError(f"no side named {name!r}; have {[s[0] for s in self.sides]}")
+
+
+@dataclass
 class S2NResult:
     """Per-wavelength count rates and noise.
 
@@ -45,6 +100,7 @@ class S2NResult:
     mtype: int  # magnitude system actually used
     binc: int  # dispersion binning used
     binr: int  # spatial binning used
+    R: float  # resolving power of the disperser used
 
     @property
     def sn_per_resolution_element(self):
@@ -153,4 +209,54 @@ def spec_calcs2n(wave, thru, str_tel, str_instr, str_obs):
         mtype=mtype,
         binc=binc,
         binr=binr,
+        R=float(str_instr.R),
     )
+
+
+#: Per-wavelength fields copied from each detector's result onto the shared grid.
+_STACKED_ARRAYS = (
+    "sn",
+    "star",
+    "tnoise",
+    "sky",
+    "thru",
+    "extinct",
+    "magsky",
+    "n0",
+    "pixel",
+    "projslit",
+)
+
+#: Per-detector scalars broadcast across the wavelengths that detector records.
+_STACKED_SCALARS = ("noise", "ndark", "columns")
+
+
+def run_sides(wave, tel, sides, obs):
+    """Run :func:`spec_calcs2n` once per detector and stack the results.
+
+    Wavelengths no detector records are left as NaN.  For a single-channel
+    instrument this is just :func:`spec_calcs2n` with the result rewrapped.
+    """
+    wave = np.atleast_1d(np.asarray(wave, dtype=float))
+    arrays = {
+        name: np.full(wave.shape, np.nan)
+        for name in _STACKED_ARRAYS + _STACKED_SCALARS
+    }
+
+    stacked = []
+    for side in sides:
+        index = np.asarray(side.index, dtype=int)
+        if index.size == 0:
+            continue
+        result = spec_calcs2n(wave[index], side.thru, tel, side.instr, obs)
+        for name in _STACKED_ARRAYS + _STACKED_SCALARS:
+            arrays[name][index] = getattr(result, name)
+        stacked.append((side.name, index, result))
+
+    if not stacked:
+        raise ValueError(
+            "no detector records any of the requested wavelengths; "
+            "check the wavelength range against the dichroic"
+        )
+
+    return StackedResult(wave=wave, sides=stacked, **arrays)

@@ -131,12 +131,12 @@ def test_negative_count_threshold_is_the_one_bad_obj_used():
 # --- instrument dispatch -------------------------------------------------
 
 
-@pytest.mark.parametrize("inst", ["kast", "lris", "esi", "deimos", "hires"])
+@pytest.mark.parametrize("inst", ["lris", "esi", "deimos", "hires"])
 def test_unported_instruments_are_refused_not_answered_with_apf(inst):
     """The web forms post `inst`; returning APF numbers for LRIS would be wrong.
 
-    These are all instruments the existing ETC serves through the IDL but that
-    this package has not ported yet.
+    These are the instruments the existing ETC serves through the IDL that this
+    package has not ported yet.
     """
     payload = calculate({**GOOD_REQUEST, "inst": inst})
     assert inst in payload["msg"]
@@ -159,7 +159,7 @@ def test_instrument_name_is_case_and_space_insensitive():
 def test_registered_instruments_are_what_the_package_supports():
     from obscalc.instruments import available_instruments
 
-    assert available_instruments() == ["apf"]
+    assert available_instruments() == ["apf", "kast"]
 
 
 def test_backend_owns_the_slitwidth_semantics():
@@ -182,3 +182,93 @@ def test_get_backend_raises_for_an_unported_instrument():
 
     with pytest.raises(NotImplementedError, match="lris"):
         get_backend("lris")
+
+
+# --- kast through the web adapter ---------------------------------------
+
+
+KAST_REQUEST = {
+    "inst": "kast",
+    "mag": "19.0",
+    "mtype": "2",
+    "seeing": "1.5",
+    "airmass": "1.1",
+    "exptime": "900",
+    "binning": "1x1",
+    "slitwidth": "1.5",
+    "dichroic": "d46",
+    "grism": "G2",
+    "grating": "600/7500",
+    "redshift": "0.0",
+}
+
+
+def test_kast_request_fills_the_same_payload_shape():
+    payload = calculate(KAST_REQUEST)
+    assert set(payload) == PARSE_RETURN_KEYS
+    assert payload["msg"] == ""
+    assert payload["errormsg"] == ""
+    n = len(payload["wave"])
+    assert n == 486  # 3150-8000 A at 10 A
+    for key in ("s2n", "obj", "sky", "noise"):
+        assert len(payload[key]) == n
+        assert len(payload["j" + key]) == n
+    assert np.all(np.isfinite(payload["js2n"]))
+
+
+def test_kast_read_noise_is_piecewise_across_the_dichroic():
+    """Two detectors, so `noise` is no longer a single broadcast value."""
+    payload = calculate(KAST_REQUEST)
+    assert len(set(np.round(payload["jnoise"], 6))) == 2
+
+
+def test_kast_has_no_apf_only_extras():
+    payload = calculate(KAST_REQUEST)
+    assert payload["i2counts"] is None
+    assert payload["exp"] is None
+    assert payload["precision"] is None
+
+
+def test_kast_dichroic_changes_where_the_read_noise_steps():
+    def step_wavelength(dichroic):
+        payload = calculate({**KAST_REQUEST, "dichroic": dichroic})
+        noise = np.array(payload["jnoise"])
+        wave = np.array(payload["wave"])
+        return wave[np.flatnonzero(np.diff(noise) != 0)[0] + 1]
+
+    assert step_wavelength("d46") == pytest.approx(4600.0)
+    assert step_wavelength("d55") == pytest.approx(5500.0)
+
+
+@pytest.mark.parametrize(
+    "override,label",
+    [
+        ({"grism": "G9"}, "Grism"),
+        ({"grating": "1200/5000"}, "Grating"),
+        ({"dichroic": "d99"}, "Dichroic"),
+        ({"slitwidth": "wide"}, "Slitwidth"),
+    ],
+)
+def test_kast_bad_instrument_parameters_are_reported(override, label):
+    payload = calculate({**KAST_REQUEST, **override})
+    assert label in payload["msg"]
+    assert payload["wave"] == []
+
+
+def test_kast_accepts_a_numeric_slitwidth_that_apf_would_reject():
+    # The same value means different things per instrument.
+    assert calculate({**KAST_REQUEST, "slitwidth": "1.0"})["msg"] == ""
+    assert "Slitwidth" in calculate({**GOOD_REQUEST, "slitwidth": "1.0"})["msg"]
+
+
+def test_kast_template_run():
+    payload = calculate(
+        {
+            **KAST_REQUEST,
+            "template": "G5V_pickles_27.fits",
+            "ffilter": "Buser_V.dat",
+        }
+    )
+    assert payload["msg"] == ""
+    assert payload["errormsg"] == ""
+    assert np.all(np.isfinite(payload["js2n"]))
