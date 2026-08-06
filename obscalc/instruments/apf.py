@@ -29,7 +29,7 @@ DECKERS = {
 
 #: Most recent throughput measurement.  ``apf_thruput.pro`` carried commented-out
 #: paths for the earlier epochs; those files are not bundled here.
-DEFAULT_SENS_FILE = "sens_APF_nov2016.fits"
+DEFAULT_SENS_FILE = "sens_APF_aug2022.fits"
 
 #: Default wavelength grid, from ``x_initapfspec.pro``.
 DEFAULT_RANGE = (3742.0, 7700.0)
