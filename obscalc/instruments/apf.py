@@ -27,8 +27,16 @@ DECKERS = {
     "B": (2.0, 8.0),
 }
 
-#: Most recent throughput measurement.  ``apf_thruput.pro`` carried commented-out
-#: paths for the earlier epochs; those files are not bundled here.
+#: Most recent throughput measurement: three spectrophotometric standards observed
+#: on 2022 Aug 29 through the ``O`` decker and averaged.  This postdates the xidl
+#: tree: ``apf_thruput.pro`` hardcodes ``sens_APF_nov2016.fits`` and carries
+#: commented-out paths back to may2013.  The APF has lost throughput since 2016 --
+#: median efficiency 14.0 per cent against 16.7 -- so the newer file is the one to
+#: calculate with, and using it is a deliberate divergence from the IDL.  The
+#: nov2016 file is still bundled; pass it as ``sens_file`` to compare epochs.
+#:
+#: Both files are tabulated at the 63 echelle order centres, orders 62 to 124,
+#: over the same 3757.9-7515.8 A; :func:`sensitivity_orders` enforces that.
 DEFAULT_SENS_FILE = "sens_APF_aug2022.fits"
 
 #: Default wavelength grid, from ``x_initapfspec.pro``.

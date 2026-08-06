@@ -35,7 +35,8 @@ I2_WINDOW = (5000.0, 6200.0)
 #: fed to them must be blaze-inclusive -- which is what
 #: :func:`obscalc.instruments.apf.apf_thruput` produces by default.  Passing
 #: peak-of-order counts instead, as the IDL did, reports a precision better than
-#: the instrument achieves: 2.67 m/s against 4.48 for a V=9 G star in 600 s.
+#: the instrument achieves: 2.98 m/s against 5.00 for a V=9 G star in 600 s on the
+#: default aug2022 throughput (2.67 against 4.48 on the nov2016 file the IDL used).
 #: Do not "correct" for the blaze here; it belongs in the throughput.
 COUNTS_INCLUDE_BLAZE = True
 

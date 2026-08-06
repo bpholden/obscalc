@@ -19,8 +19,8 @@ def test_bundled_data_is_present():
 
 def test_resolve_finds_gzipped_file_when_asked_for_plain():
     # The xidl sources name this file without the .gz that is on disk.
-    found = config.resolve("sens_APF_nov2016.fits", config.THRUPUT_DIR)
-    assert found.name == "sens_APF_nov2016.fits.gz"
+    found = config.resolve("sens_APF_aug2022.fits", config.THRUPUT_DIR)
+    assert found.name == "sens_APF_aug2022.fits.gz"
 
 
 def test_resolve_reports_the_directory_it_tried():

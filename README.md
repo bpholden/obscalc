@@ -57,27 +57,28 @@ obscalc --mag 9 --mtype 1 --exptime 600 --decker N \
 ```
 
 ```
-DECKER   = 0.5" x 8"
-BINNING  = 1x1 (spatial x dispersion)
+SLIT     = 0.5" x 8"
 SEEING   = 1.2"
 AIRMASS  = 1.1
 EXPTIME  = 600 s
 MAG      = 9 (Vega/Johnson)
+BINNING  = 1x1 (spatial x dispersion)
 TEMPLATE = G5V_pickles_27.fits at z = 0
 FILTER   = Buser_V.dat
 
-Slit width projects to 2.000 pixels
-Extraction is 9 rows, 1.111 sky rows per object row
-Slit transmission 0.3171
-Read noise 7.95 e-, dark 10.95 e-
+3742-7692 A: R = 282161, 2.00 pixels across the slit, 9 rows extracted, 1.11 sky rows per object row
+  slit transmission 0.3171, read noise 11.25 e-, dark 10.95 e-
+  median S/N 35.29 per binned pixel, 49.90 per resolution element
 
-Median S/N 77.94 per binned pixel, 110.22 per resolution element
-Peak S/N   83.88 at 6622 A
+Overall median S/N 35.29 per binned pixel
+Peak S/N 76.70 at 6852 A
 
-Iodine region counts 6276.6 e-
+Iodine region counts 2320.4 e-
 Template B-V 0.688
-Exposure meter 2.027e+08
-RV precision 2.66 m/s
+Exposure meter 7.493e+07
+RV precision 5.00 m/s
+
+Echelle orders 60-124 across the range; free spectral range 30.3-129.4 A
 ```
 
 `--list-filters` and `--list-templates` show what is bundled. `--infil` reads the
@@ -101,6 +102,9 @@ Both sides are reported separately, then together:
 5500-8000 A [red]: R = 3164, 3.47 pixels across the slit, 11 rows extracted, ...
   slit transmission 0.6447, read noise 12.60 e-, dark 0.01 e-
   median S/N 27.70 per binned pixel, 51.60 per resolution element
+
+Overall median S/N 26.15 per binned pixel
+Peak S/N 32.63 at 6810 A
 ```
 
 Note that `--slitwidth` is a **width in arcsec** for Kast but a **decker name**
@@ -144,7 +148,10 @@ obscalc-hires --mag 15 --mtype 2 --exptime 1800 --decker C5 --epoch new
 ```
 3000-9500 A: R = 216000, 6.40 pixels across the slit, 18 rows extracted, ...
   slit transmission 0.8421, read noise 6.60 e-, dark 9.00 e-
-  median S/N 40.50 per binned pixel, 102.47 per resolution element
+  median S/N 23.55 per binned pixel, 59.57 per resolution element
+
+Overall median S/N 23.55 per binned pixel
+Peak S/N 51.28 at 5090 A
 
 Echelle orders 37-118 across the range; free spectral range 25.6-260.3 A
 Cross-disperser: blue setting below 3790 A, red above
@@ -195,7 +202,10 @@ obscalc-deimos --mag 22 --mtype 2 --exptime 1200 \
 ```
 4000-10000 A: R = 22727, 6.02 pixels across the slit, 13 rows extracted, ...
   slit transmission 0.7945, read noise 9.37 e-, dark 17.33 e-
-  median S/N 1.82 per binned pixel, 4.46 per resolution element
+  median S/N 1.57 per binned pixel, 3.85 per resolution element
+
+Overall median S/N 1.57 per binned pixel
+Peak S/N 2.89 at 7640 A
 
 Grating 1200G tilted to 7000 A: throughput from sens_DEIMOS_1200G.fits,
   measured over 4014-9348 A
@@ -287,14 +297,15 @@ into `webapi._coerce` for the parameters every spectrograph shares, and into the
 backend for the rest; both report problems in the same `msg` field the existing
 forms already display.
 
-`calculate` dispatches on `inst`, defaulting to `apf`. Because only APF is
-ported, a request naming any of the other instruments the ETC serves
-(`kast`, `lris`, `esi`, `deimos`, `hires`) is **refused** with a message rather
-than silently answered with APF numbers:
+`calculate` dispatches on `inst`, defaulting to `apf`, and serves whatever is
+registered in `instruments.BACKENDS` — currently `apf`, `deimos`, `hires` and
+`kast`. The two instruments the ETC exposes that are not ported, `lris` and
+`esi`, are **refused** with a message rather than silently answered with APF
+numbers:
 
 ```python
 calculate({"inst": "lris", ...})["msg"]
-# "Unknown instrument 'lris'. This calculator serves apf."
+# "Unknown instrument 'lris'. This calculator serves apf, deimos, hires, kast."
 ```
 
 Parameters a backend does not recognise are passed through untouched, so a form
@@ -305,8 +316,9 @@ backend's business and not `webapi`'s.
 
 ## Differences from the IDL
 
-The port fixes four defects rather than reproducing them, so results will not
-match the IDL numerically. Each is commented at the site of the change.
+The port fixes the defects below rather than reproducing them, and calculates the
+APF on a newer throughput measurement than the IDL had, so results will not match
+the IDL numerically. Each divergence is commented at the site of the change.
 
 **Negative `nsky` made the S/N NaN.** `spec_calcs2n.pro` always applied the
 sky-subtraction penalty `(1 + 1/nsky)`, but `nsky` — sky rows per object row —
@@ -363,29 +375,42 @@ Rather than rescale detected counts per configuration, the throughput is undone
 to recover a true surface brightness, which is what the engine wants and what any
 instrument can then use. See below for how well that works.
 
+**The APF throughput measurement is newer than the one the IDL used.**
+`apf_thruput.pro:52` hardcodes `sens_APF_nov2016.fits`, with commented-out paths
+back to may2013. The default here is `sens_APF_aug2022.fits`, which is not in the
+xidl tree. The APF has lost throughput over those six years — median efficiency
+14.0% against 16.7% — so every APF number is correspondingly lower than the IDL
+would give, before any of the corrections below. Both files are bundled; pass
+`sens_file="sens_APF_nov2016.fits"` to `apf_thruput` to compare epochs.
+
 **The APF throughput was treated as a smooth curve when it is per-order.** The
-63 wavelengths in `sens_APF_nov2016.fits` are the 63 consecutive echelle order
-centres, orders 62 to 124, matching `MLAMBDA/m` to better than 0.006 Å. It is one
-measurement per order, taken at the blaze peak — the same structure as the HIRES
-table. `apf_thruput.pro` interpolated it *at the wavelength*, which mixes adjacent
-orders, and applied no blaze, so it reported every order's peak everywhere.
-`apf_calcs2n.pro` computed the order number, blaze centre and free spectral range
-(lines 113–121) and then discarded all three. Two corrections follow:
+63 wavelengths in `sens_APF_aug2022.fits` are the 63 consecutive echelle order
+centres, orders 62 to 124, matching `MLAMBDA/m` to better than 0.006 Å — as are
+nov2016's, over the same 3757.9–7515.8 Å. It is one measurement per order, taken
+at the blaze peak — the same structure as the HIRES table. `apf_thruput.pro`
+interpolated it *at the wavelength*, which mixes adjacent orders, and applied no
+blaze, so it reported every order's peak everywhere. `apf_calcs2n.pro` computed
+the order number, blaze centre and free spectral range (lines 113–121) and then
+discarded all three. Two corrections follow:
 
 - **Per-order lookup**, unconditional. Each wavelength takes its own order's
-  value. Median effect under 1%, but up to **20%** around 3800–4300 Å where the
+  value. Median effect 0.8%, but up to **15%** around 3800–4300 Å where the
   sensitivity curve rises steeply — 3822 Å belongs to order 121, centred at
-  3851 Å, giving 0.059 rather than the interpolated 0.049.
+  3851 Å, giving 0.058 rather than the interpolated 0.051.
 - **The blaze**, on by default as for HIRES. Median throughput ×0.41, median S/N
-  ×0.50 for a V=9 G star.
+  ×0.49 for a V=9 G star.
 
 There is no option to restore the old interpolation; it was simply wrong.
 `--no-blaze` gives the per-order peak, which is the closest thing to the IDL.
 
 **This moves the APF's RV numbers, and in the right direction.**
 `apf_extras.i2counts` is the median object count over 5000–6200 Å, so it falls
-with the blaze applied — for a V=9 G star in 600 s: 6250 → 2762 counts, exposure
-meter 2.02e8 → 8.92e7, and **RV precision 2.67 → 4.48 m/s**.
+with the blaze applied — for a V=9 G star in 600 s: 5249 → 2320 counts, exposure
+meter 1.70e8 → 7.49e7, and **RV precision 2.98 → 5.00 m/s**.
+
+Against what the IDL reported — nov2016, no blaze, 2.67 m/s — the total move to
+5.00 m/s is about four fifths the blaze and one fifth the newer throughput file
+(nov2016 with the blaze gives 4.48 m/s).
 
 That is the better estimate. `A = 4.47`, `B = −1.58` come from empirical
 measurements on real APF spectra, which carry the blaze, so blaze-inclusive counts
@@ -559,7 +584,8 @@ would turn this into a real regression test.
 
 | Path | Source |
 | --- | --- |
-| `data/thruput/sens_APF_nov2016.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; a standard star observed by S. Vogt |
+| `data/thruput/sens_APF_aug2022.fits.gz` | **the default.** B. Holden, 2022 Aug 29: three spectrophotometric standards (HD 192281, HD 186427, HD 217086) through the 8"×8" `O` decker, averaged. `O` is wide enough to lose no light to the slit, which is why it is the decker throughput is measured through. Not in the xidl tree, which stops at nov2016 |
+| `data/thruput/sens_APF_nov2016.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; a standard star observed by S. Vogt. What `apf_thruput.pro` used; kept for epoch comparison |
 | `data/thruput/sens_Kast*.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; blue from 2011 Aug 29, red from 2009 Mar 18 |
 | `data/sky/lick_sky_d55_2011aug29.fits.gz` | xidl `Obs/Sky/Empirical`; one dark-sky measurement at Mt Hamilton |
 | `data/sky/mkea_sky_*.fits.gz` | xidl `Obs/Sky/Empirical`; new-moon Mauna Kea sky from DEIMOS data |

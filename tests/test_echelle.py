@@ -70,9 +70,10 @@ def test_measured_orders_rejects_a_table_that_is_not_per_order():
 def test_the_apf_sensitivity_file_is_tabulated_at_order_centres():
     """The evidence for this whole change.
 
-    All 63 wavelengths in sens_APF_nov2016 are MLAMBDA/m for consecutive integer
-    m, to better than 0.006 Angstroms.  That is not a coincidence: it is one
-    measurement per order, taken at the blaze peak.
+    All 63 wavelengths in sens_APF_aug2022 are MLAMBDA/m for consecutive integer
+    m, to better than 0.006 Angstroms -- as they are in the nov2016 file it
+    replaced.  That is not a coincidence: it is one measurement per order, taken
+    at the blaze peak.
     """
     sens_wave, _ = _sensitivity(DEFAULT_SENS_FILE)
     order = np.rint(MLAMBDA / sens_wave).astype(int)
@@ -163,9 +164,10 @@ def test_orders_beyond_the_measurement_hold_the_end_value():
 def test_the_old_interpolation_differed_most_in_the_steep_blue():
     """Per-order lookup against interpolating the curve at the wavelength.
 
-    Mostly sub-1 per cent, but up to 20 per cent around 3800-4300 A where the
+    Mostly sub-1 per cent, but around 15 per cent at 3800-4300 A where the
     sensitivity curve rises steeply and a wavelength sits well away from its own
-    order's centre.
+    order's centre.  The exact worst case depends on the sensitivity file: it is
+    14.8 per cent for aug2022, 20 per cent for the nov2016 file it replaced.
     """
     from obscalc.idl_compat import interpol
 
@@ -176,6 +178,6 @@ def test_the_old_interpolation_differed_most_in_the_steep_blue():
 
     deviation = np.abs(new / old - 1)
     assert np.median(deviation) < 0.02
-    assert deviation.max() > 0.15
+    assert deviation.max() > 0.10
     worst = GRID[np.argmax(deviation)]
     assert 3700.0 < worst < 4400.0
