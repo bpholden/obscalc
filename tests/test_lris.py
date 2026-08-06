@@ -8,7 +8,12 @@ import pytest
 from obscalc.instruments.base import ParameterError
 from obscalc.instruments.lris import (
     BLUE_SENS_FILES,
+    DEFAULT_DICHROIC,
+    DEFAULT_GRATING,
+    DEFAULT_GRISM,
     DEFAULT_RANGE,
+    DEFAULT_SEEING,
+    DEFAULT_SLIT,
     DICHROICS,
     GRATINGS,
     GRISMS,
@@ -101,6 +106,26 @@ def test_slit_height_is_the_long_slit():
     for instr in (blue, red):
         assert instr.swidth == 1.5
         assert instr.sheight == 120.0
+
+
+def test_defaults_come_from_the_wrapper_not_from_x_initlris():
+    """lris_calcs2n_wrapper.pro is what calls the engine, so it sets the defaults.
+
+    It overwrites the instrument structure after x_initlris has filled it in, so
+    x_initlris's disperser defaults never reach spec_calcs2n.  Only the slit gets
+    through, because the wrapper passes SLIT=slitwidth in undefined.
+
+    The blue grism is the exception the other way: the wrapper writes 'G2', a
+    Kast grism with no LRIS case, so there is no usable wrapper default and B600
+    is a choice.  See DEFAULT_GRISM.
+    """
+    assert DEFAULT_RANGE == (3500.0, 10000.0)  # wrapper wvmn/wvmx
+    assert DEFAULT_GRATING == "600/7500"  # wrapper str_instr[1].grating
+    assert DEFAULT_DICHROIC == "D560"  # wrapper str_instr[0].dichroic
+    assert DEFAULT_SEEING == 1.0  # wrapper str_obs.seeing
+    assert DEFAULT_SLIT == 1.0  # not set by the wrapper; x_initlris's fallback
+    assert DEFAULT_GRISM == "B600"
+    assert "G2" not in GRISMS
 
 
 def test_unknown_configurations_are_rejected():

@@ -73,14 +73,35 @@ UNUSABLE_SENS_FILES = {("B300", "D680"): "sens_LRISb_300_5000_D680.fits"}
 #: by nothing but must not see a negative.
 MIN_THRUPUT = 1e-5
 
-#: Default wavelength grid, from ``lris_calcs2n_wrapper.pro``.
+# Defaults come from ``lris_calcs2n_wrapper.pro``, not from ``x_initlris.pro``.
+# The wrapper is what actually calls the engine, and it overwrites the instrument
+# structure after x_initlris has filled it in, so x_initlris's own defaults never
+# reach ``spec_calcs2n``.  Only the slit gets through, because the wrapper passes
+# ``SLIT=slitwidth`` straight in and leaves it undefined.
+
+#: Default wavelength grid: wrapper ``wvmn``/``wvmx``.
 DEFAULT_RANGE = (3500.0, 10000.0)
 
+#: The blue disperser is the one place the wrapper has no usable default.  It
+#: sets ``state.str_instr[0].grating = 'G2'`` -- a *Kast* grism, which
+#: ``lris_thruput.pro`` has no case for -- because that whole block is a verbatim
+#: copy of ``kast_calcs2n_wrapper.pro`` lines 64-68.  ``G2`` is Kast's 600 line
+#: blue grism, so ``B600`` is the LRIS counterpart of what the copied line names,
+#: and it is what ``x_initlris.pro`` would have used had the wrapper not
+#: overwritten it.  Both readings agree, so it is the default here.
 DEFAULT_GRISM = "B600"
+
+#: Wrapper ``state.str_instr[1].grating``; x_initlris agrees.
 DEFAULT_GRATING = "600/7500"
+
+#: Wrapper ``state.str_instr[0].dichroic``.
 DEFAULT_DICHROIC = "D560"
-DEFAULT_SLIT = 1.0  # arcsec, from x_initlris
-DEFAULT_SEEING = 1.0  # arcsec, from lris_calcs2n_wrapper.pro
+
+#: Not set by the wrapper, so x_initlris's fallback stands.
+DEFAULT_SLIT = 1.0  # arcsec
+
+#: Wrapper ``str_obs.seeing``.
+DEFAULT_SEEING = 1.0  # arcsec
 
 
 def lris_spectrograph(

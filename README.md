@@ -567,12 +567,21 @@ recovered LRIS measurement, so the sky is now defined across the whole range the
 instrument sees.
 
 **LRIS's default configuration did not exist**, the same way DEIMOS's did not.
-`lris_calcs2n_wrapper.pro` sets `state.str_instr[0].grating = 'G2'` before
-applying the `grism` keyword — `G2` is a *Kast* grism — so an unqualified run hit
-`lris_thruput.pro`'s `else: stop`. Worse, `x_initlris.pro` had already set the
-blue resolving power from its own `B600` default, so even had the throughput
-lookup survived, R and the throughput would have described different dispersers.
-`B600` is the default here, matching `x_initlris.pro`.
+Defaults reach the engine through the wrapper, not through `x_initlris.pro`:
+`lris_calcs2n_wrapper.pro` overwrites the instrument structure after
+`x_initlris` has filled it in, so `x_initlris`'s own disperser defaults never
+survive. What the wrapper writes is `state.str_instr[0].grating = 'G2'` — a
+*Kast* grism, which `lris_thruput.pro` has no case for — so an unqualified run
+hit its `else: stop`. Worse, `x_initlris.pro` had already set the blue resolving
+power from its own `B600` default, so even had the throughput lookup survived, R
+and the throughput would have described different dispersers.
+
+That block is a verbatim copy of `kast_calcs2n_wrapper.pro` lines 64–68, `G2` and
+all — which is also why Kast's default grism here is `G2` rather than the `G1`
+`x_initkast.pro` names. Since `G2` is Kast's 600-line blue grism, `B600` is the
+LRIS counterpart of what the copied line was reaching for, and it is what
+`x_initlris.pro` would have set had the wrapper left it alone. Both readings
+agree on `B600`, which is the default here.
 
 **A `-99` from `single_spec2mag` propagated silently.** A template that does not
 cover its normalising filter now raises `TemplateFilterMismatch` instead of
