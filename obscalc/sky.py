@@ -230,8 +230,26 @@ DEFAULT_MAUNAKEA_MODEL = "combined"
 #: Model each Keck instrument's branch of ``spec_calcs2n.pro`` implied.  Anything
 #: not listed reached the analytic fallback, which no longer exists.
 KECK_INSTRUMENT_MODELS = {
-    "DEIMOS": "deimos600",  # flg_sky = 1 only for the 1200 line grating
+    "DEIMOS": "deimos600",
     "ESI": "deimos600",
+}
+
+#: DEIMOS matched its sky measurement to the grating in use, which is what
+#: ``spec_calcs2n.pro``'s ``flg_sky = 1`` was for: it tested
+#: ``str_instr.grating EQ '1200'``, and ``deimos_calcs2n_wrapper.pro`` defaults the
+#: grating to ``'1200'``, which ``x_initdeimos.pro`` writes into the structure
+#: before its case statement rejects it.  So the branch was intended for the
+#: 1200 line gratings even though the missing case entry left it unreachable.
+#:
+#: The matched model resolves the airglow lines a little better -- 4.10 against
+#: 3.78 magnitudes peak to median -- but is measured over only 6281-9329 A against
+#: 5001-9999 A, so more of a wide grid is held at an end value.
+DEIMOS_GRATING_MODELS = {
+    "1200": "deimos1200",
+    "1200G": "deimos1200",
+    "1200B": "deimos1200",
+    "600Z": "deimos600",
+    "900Z": "deimos600",
 }
 
 
@@ -317,11 +335,20 @@ def validate_against_deimos(model="lris_red", wave_min=5700.0, wave_max=8190.0):
     return float(np.median(difference)), float(np.std(difference))
 
 
-def _maunakea_for_instrument(instrument_name):
-    """Bind :func:`maunakea_sky` to the model an instrument implies."""
-    model = KECK_INSTRUMENT_MODELS.get(
-        (instrument_name or "").strip().upper(), DEFAULT_MAUNAKEA_MODEL
-    )
+def _maunakea_for_instrument(instrument):
+    """Bind :func:`maunakea_sky` to the model an instrument implies.
+
+    ``instrument`` may be an :class:`~obscalc.structures.Instrument` or just its
+    name.  DEIMOS additionally selects on the grating, so passing the instrument
+    is what gets the matched sky measurement.
+    """
+    name = getattr(instrument, "name", instrument) or ""
+    name = str(name).strip().upper()
+    grating = str(getattr(instrument, "grating", "") or "").strip()
+
+    model = KECK_INSTRUMENT_MODELS.get(name, DEFAULT_MAUNAKEA_MODEL)
+    if name == "DEIMOS":
+        model = DEIMOS_GRATING_MODELS.get(grating, model)
 
     def sky(wave, phase=0):
         return maunakea_sky(wave, phase, model=model)
@@ -340,13 +367,18 @@ SKY_BY_INSTRUMENT = {
 }
 
 
-def sky_for(telescope_name, instrument_name=None):
-    """Sky brightness function for a telescope, and instrument where it matters."""
+def sky_for(telescope_name, instrument=None):
+    """Sky brightness function for a telescope, and instrument where it matters.
+
+    ``instrument`` may be an :class:`~obscalc.structures.Instrument` or its name;
+    the instrument itself is needed for DEIMOS, whose sky model follows the
+    grating.
+    """
     key = telescope_name.strip()
     if key in SKY:
         return SKY[key]
     if key in SKY_BY_INSTRUMENT:
-        return SKY_BY_INSTRUMENT[key](instrument_name)
+        return SKY_BY_INSTRUMENT[key](instrument)
     raise NotImplementedError(
         f"no sky model for telescope {telescope_name!r}; "
         f"have {sorted(set(SKY) | set(SKY_BY_INSTRUMENT))}"

@@ -267,6 +267,42 @@ def test_sky_dispatch_is_per_instrument_for_keck():
     assert sky_for("KeckII", "DEIMOS").model == "deimos600"
 
 
+def test_deimos_dispatch_also_reads_the_grating():
+    """Passing the instrument, not just its name, gets the matched measurement.
+
+    A bare name carries no grating, so it falls back to the wider model.
+    """
+    from obscalc.structures import Instrument
+
+    assert sky_for("KeckII", Instrument(name="DEIMOS", grating="1200G")).model == (
+        "deimos1200"
+    )
+    assert sky_for("KeckII", Instrument(name="DEIMOS", grating="600Z")).model == (
+        "deimos600"
+    )
+    assert sky_for("KeckII", Instrument(name="DEIMOS")).model == "deimos600"
+
+
+def test_the_matched_deimos_model_trades_coverage_for_resolution():
+    """Why the choice is not free.
+
+    The 1200 line measurement resolves the airglow lines a little better but spans
+    only 6281-9329 A against 5001-9999 A, so more of a wide grid is held at an end
+    value.
+    """
+    narrow = coverage("deimos1200")
+    wide = coverage("deimos600")
+    assert narrow[0] > wide[0] and narrow[1] < wide[1]
+
+    both = np.arange(6300.0, 9300.0, 50.0)
+    matched = maunakea_sky(both, model="deimos1200")
+    other = maunakea_sky(both, model="deimos600")
+    # Agree in the mean where both are measured, to a couple of tenths.
+    assert np.median(np.abs(matched - other)) < 0.4
+    # But the 1200 model reaches brighter line peaks.
+    assert (np.median(matched) - matched.min()) > (np.median(other) - other.min())
+
+
 def test_unlisted_keck_instruments_fall_back_to_the_default():
     # Keck I and HIRES reached the analytic fallback, which no longer exists.
     # LRIS selected flg_sky = 2, superseded by the recovered blue model.

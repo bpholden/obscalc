@@ -409,10 +409,30 @@ Two problems in one instrument:
   held instead. The zero clip is kept: `sens_DEIMOS_900_500nm` holds 133 slightly
   negative efficiencies inside its own range.
 
-**`spec_calcs2n.pro`'s DEIMOS sky branch was dead code.** It selected
-`flg_sky = 1` when `str_instr.grating EQ '1200'`, but `x_initdeimos.pro` only ever
-set `600Z`, `900Z`, `1200G` or `1200B`, so the 1200-line sky model was never
-reached and DEIMOS always used `flg_sky = 0`. That is what it gets here too.
+**DEIMOS's sky model follows its grating.** `spec_calcs2n.pro` selected
+`flg_sky = 1` when `str_instr.grating EQ '1200'`, and
+`deimos_calcs2n_wrapper.pro` defaults the grating to exactly `'1200'`, which
+`x_initdeimos.pro` writes into the structure *before* the case statement rejects
+it. So that branch was written to pair with the 1200-line grating; it was
+unreachable only because of the missing case entry above, not because it was
+never meant to run. Here the 1200-line gratings get the sky measured with the
+1200-line grating and the others get the 600 one:
+
+| Grating | Sky model | Measured over |
+| --- | --- | --- |
+| `1200G`, `1200B` | `deimos1200` | 6281–9329 Å |
+| `600Z`, `900Z` | `deimos600` | 5001–9999 Å |
+
+Matching the grating matters because the sky spectrum's airglow lines are
+resolved differently — the 1200 model reaches line peaks 4.10 mag above its median
+against 3.78 for the 600 one. **The tradeoff is coverage:** on the default
+4000–10000 Å grid, 49% of points fall outside the 1200 model's measured range
+against 17% for the 600 one, and are held at an end value. Falling back to the 600
+model outside the 1200 one's range rather than holding a constant would be
+strictly better; it is not done here because the IDL had no such composite.
+
+`sky.sky_for` therefore takes the instrument itself, not just its name, since the
+grating is part of the key. Passing a bare `"DEIMOS"` falls back to `deimos600`.
 
 **The HIRES detector boost was extrapolated off the end of its table.**
 `hires_thru_newccd` passed straight to `interpol`, whose table starts at 3153.9 Å

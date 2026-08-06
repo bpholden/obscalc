@@ -356,18 +356,31 @@ def test_deimos_read_noise_is_a_single_value():
     assert len(set(np.round(calculate(DEIMOS_REQUEST)["jnoise"], 6))) == 1
 
 
-def test_deimos_uses_the_deimos_sky_model():
-    """spec_calcs2n.pro's flg_sky = 1 branch was dead code.
+def test_deimos_sky_model_follows_the_grating():
+    """spec_calcs2n.pro's flg_sky = 1 selected the matching sky measurement.
 
-    It tested `str_instr.grating EQ '1200'`, but x_initdeimos.pro only ever set
-    '600Z', '900Z', '1200G' or '1200B', so the 1200-line sky model was never
-    selected and DEIMOS always got flg_sky = 0.
+    It tested `str_instr.grating EQ '1200'`, and deimos_calcs2n_wrapper.pro
+    defaults the grating to '1200', which x_initdeimos.pro writes into the
+    structure before its case statement rejects it.  So the branch was meant for
+    the 1200 line gratings, and they get the sky measured with that grating.
     """
-    from obscalc.instruments.deimos import GRATINGS
+    from obscalc.instruments.deimos import deimos_spectrograph
     from obscalc.sky import sky_for
 
-    assert "1200" not in GRATINGS
-    assert sky_for("KeckII", "DEIMOS").model == "deimos600"
+    for grating, model in (
+        ("1200G", "deimos1200"),
+        ("1200B", "deimos1200"),
+        ("600Z", "deimos600"),
+        ("900Z", "deimos600"),
+    ):
+        instr = deimos_spectrograph(grating=grating)
+        assert sky_for("KeckII", instr).model == model, grating
+
+
+def test_the_grating_changes_the_sky_a_deimos_request_sees():
+    sky_1200 = np.array(calculate({**DEIMOS_REQUEST, "grating": "1200G"})["jsky"])
+    sky_900 = np.array(calculate({**DEIMOS_REQUEST, "grating": "900Z"})["jsky"])
+    assert not np.allclose(sky_1200, sky_900)
 
 
 def test_kast_template_run():
