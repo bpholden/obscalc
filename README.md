@@ -12,10 +12,14 @@ Supported instruments:
 | Kast | Shane 3 m, Lick | two, split by a dichroic | `obscalc-kast` |
 | HIRES | Keck I 10 m | one, cross-dispersed echelle | `obscalc-hires` |
 | DEIMOS | Keck II 10 m | one | `obscalc-deimos` |
+| LRIS | Keck I 10 m | two, split by a dichroic | `obscalc-lris` |
 
 The two echelles share `echelle.py`: order geometry, the blaze function, and
 per-order throughput lookup. Both apply the blaze by default; `--no-blaze`
 reproduces the IDL on either.
+
+Kast and LRIS are both double spectrographs and are built the same way, but the
+throughput lookup differs: Kast's dichroic does not select a file, LRIS's does.
 
 The engine is generic; everything named `apf_*` or `kast_*` is not. `s2n.py`,
 `slit.py`, `photometry.py`, `idl_compat.py`, `structures.py`, `cli_common.py`,
@@ -239,6 +243,70 @@ is held at the nearest measured value, so those counts are an extrapolation.
 
 `--slitwidth` is a width in arcsec here, as for Kast.
 
+### LRIS
+
+```sh
+obscalc-lris --mag 20 --mtype 2 --exptime 3600 \
+             --grism B600 --grating 600/7500 --slitwidth 1.0
+```
+
+```
+3500-5590 A [blue]: R = 7500, 7.44 pixels across the slit, 23 rows extracted, ...
+  slit transmission 0.6447, read noise 17.74 e-, dark 0.02 e-
+  median S/N 39.35 per binned pixel, 107.31 per resolution element
+
+5600-10000 A [red]: R = 11820, 7.44 pixels across the slit, 23 rows extracted, ...
+  slit transmission 0.6447, read noise 21.58 e-, dark 0.02 e-
+  median S/N 18.39 per binned pixel, 50.15 per resolution element
+
+Overall median S/N 23.67 per binned pixel
+Peak S/N 42.31 at 4980 A
+
+Grism B600 with dichroic D560: throughput from sens_LRISb_600_4000_D560.fits,
+  measured over 3101-5596 A
+Grating 600/7500 with dichroic D560: throughput from sens_LRISr_600_7500_D560.fits,
+  measured over 5628-8191 A
+```
+
+LRIS is a double spectrograph like Kast — `--grism` for the blue side, `--grating`
+for the red, `--slitwidth` a width in arcsec — and is on **Keck I**, which
+`x_initlris.pro` sets explicitly.
+
+**Only the `D560` dichroic is offered**, splitting at 5600 Å. `lris_thruput.pro`
+had a commented-out `d46` and stopped on anything else, and it is also the only
+dichroic with measurements on both sides. Unlike Kast, where the dichroic does not
+actually select a file, here it is part of the key: a sensitivity measurement
+carries whichever dichroic was in the beam when it was taken.
+
+| Blue grism | R | Measured over |
+| --- | --- | --- |
+| `B600` (default) | 7500 | 3101–5596 Å |
+| `B300` | 3304 | 2148–7652 Å |
+
+| Red grating | R | Measured over | Held on the red side |
+| --- | --- | --- | --- |
+| `400/8500` | 8151 | 5529–10354 Å | none |
+| `600/10000` | 11820 | 6567–9847 Å | 25% |
+| `600/7500` (default) | 11820 | 5628–8191 Å | 42% |
+| `831/8200` | 16303 | 6785–9169 Å | 46% |
+| `1200/9000` | 23640 | 7361–8986 Å | 63% |
+
+Both grisms cover the whole blue side. **The red side is where to pay attention**:
+four of the five gratings are measured over less than the 5600–10000 Å the red
+side receives, and the default `600/7500` leaves 42% of it held at the nearest
+measured value. The driver says where:
+
+```
+WARNING: 5600-5620 A [red], 8200-10000 A [red] lie outside those measurements.
+Throughput there is held at the nearest measured value, so those counts are an
+extrapolation; narrow the range with --wvmn/--wvmx to avoid it.
+```
+
+`--grating 400/8500` is the one configuration measured across the entire grid.
+Note also that the 5600–5620 Å sliver cannot be trimmed away: the dichroic hands
+over at 5600 Å but no red measurement starts before 5529 Å except `400/8500`, so
+with `600/7500` the first three grid points of the red side are always held.
+
 ### Looking at plots
 
 Either add `--plot out.png` to any run, or generate a representative set:
@@ -249,12 +317,14 @@ python scripts/make_plots.py /tmp/figs  # or somewhere else
 open plots/                             # macOS
 ```
 
-That writes fifteen figures: four APF configurations and three HIRES ones, each
+That writes eighteen figures: four APF configurations and three HIRES ones, each
 set including a blaze on/off pair where the echelle order structure shows; three
 Kast ones (including `G3 + d55`, where the throughput dead zone is obvious); four
 DEIMOS ones (including a `900Z` tilt pair, where the measured range visibly
-moves); and the Mauna Kea sky-model diagnostic from `plots.sky_models_figure`,
-which shows the recovered LRIS red channel lying on top of the independent DEIMOS
+moves); three LRIS ones, where the throughput panel goes flat wherever a grating
+has run past its measurement — obvious for `1200/9000`, absent for `400/8500`;
+and the Mauna Kea sky-model diagnostic from `plots.sky_models_figure`, which
+shows the recovered LRIS red channel lying on top of the independent DEIMOS
 measurement.
 
 ## Library
@@ -298,20 +368,20 @@ backend for the rest; both report problems in the same `msg` field the existing
 forms already display.
 
 `calculate` dispatches on `inst`, defaulting to `apf`, and serves whatever is
-registered in `instruments.BACKENDS` — currently `apf`, `deimos`, `hires` and
-`kast`. The two instruments the ETC exposes that are not ported, `lris` and
-`esi`, are **refused** with a message rather than silently answered with APF
-numbers:
+registered in `instruments.BACKENDS` — `apf`, `deimos`, `hires`, `kast` and
+`lris`. **That is every instrument the ETC still serves**, so `idl_wrapper` and
+`env-for-xidl` can be retired. An unrecognised name is **refused** with a message
+rather than silently answered with APF numbers:
 
 ```python
-calculate({"inst": "lris", ...})["msg"]
-# "Unknown instrument 'lris'. This calculator serves apf, deimos, hires, kast."
+calculate({"inst": "nirspec", ...})["msg"]
+# "Unknown instrument 'nirspec'. This calculator serves apf, deimos, hires, kast, lris."
 ```
 
 Parameters a backend does not recognise are passed through untouched, so a form
 that posts a `dichroic` or `grating` will not fail validation. Note that
 `slitwidth` means different things per instrument — a decker letter for APF and
-HIRES, a width in arcsec for kast, lris, esi and deimos — which is why it is the
+HIRES, a width in arcsec for kast, lris and deimos — which is why it is the
 backend's business and not `webapi`'s.
 
 ## Differences from the IDL
@@ -358,9 +428,9 @@ Two consequences, both documented in `sky.py`:
   fallback also disposes of the second bug in that routine, where the moon-phase
   index reused `ngd` from the preceding wavelength search.
 - **There is no moon-phase dependence for Mauna Kea at all.**
-  `spec_calcs2n.pro` already forced `phase = 0L ;; Only New Moon so far` for
-  DEIMOS, ESI and LRIS, so this changes nothing for those; it is a change for
-  Keck I and HIRES, which passed a real phase to a table that only mattered
+  `spec_calcs2n.pro` already forced `phase = 0L ;; Only New Moon so far` in its
+  Keck II branches, so this changes nothing for DEIMOS or LRIS; it is a change
+  for Keck I and HIRES, which passed a real phase to a table that only mattered
   outside the empirical range.
 
 **The LRIS sky frames have their throughput divided back out.**
@@ -465,12 +535,44 @@ while HIRES is used from 3000 Å. Continuing the first interval trebles the boos
 to 32.8 by 3000 Å, turning a 0.3% throughput into 9.8%. A quantum efficiency
 ratio cannot be extrapolated that way, so the end values are held instead.
 
-**Kast's per-detector read noise was clobbered.** `x_initkast.pro` says 3.7
-electrons for the blue detector and 3.8 for the red, but wrote
+**Kast's and LRIS's per-detector read noise was clobbered.** `x_initkast.pro`
+says 3.7 electrons for the blue detector and 3.8 for the red, but wrote
 `kastinstr.readno = 3.7` followed by `kastinstr.readno = 3.8` on a two-element
 array, so the second assignment overwrote both and every Kast calculation used
-3.8 on each side. The per-detector values are used here. (The same pattern
-appears in `x_initapflowspec.pro`, which is not ported.)
+3.8 on each side. `x_initlris.pro` makes the identical mistake under the same
+`;; Blue Detector` / `;; Red Detector` comments, 3.7 then 4.5, so LRIS used 4.5
+throughout. The per-detector values are used for both. (The same pattern appears
+a third time in `x_initapflowspec.pro`, which is not ported.)
+
+**LRIS reached past its throughput measurement, upward.** `lris_thruput.pro` held
+the blue end of each curve — `wave < sens.wav[0]` takes `sens.eff[0]` — but let
+`interpol` extrapolate past the red end, clipping only with `> 1e-5`. That floor
+catches a curve falling negative and misses one rising, and here the rising case
+is the default: `600/7500` is measured only to 8191 Å, and continuing its last
+interval to 10000 Å gives an efficiency of **0.415 — above every red-side LRIS
+measurement (best 0.378), above anything on its own curve (peak 0.221), and 3.3×
+the 0.125 measured at its red end**. `1200/9000` and `831/8200` run negative
+instead and would be floored, hiding 1600 Å of grid behind a number that only
+looks small. The red end is held at the nearest measured value, as for DEIMOS,
+and `unmeasured_ranges` reports where.
+
+**LRIS's sky branch in `spec_calcs2n.pro` was unreachable.** The `'LRIS'` case
+selecting `flg_sky = 2` — the `mkea_sky_LRIS_both.fits` model — is nested inside
+the `'KeckII'` branch, but `x_initlris.pro` sets the telescope name to `'KeckI'`.
+So LRIS took the `'KeckI'` line instead, `maunakea_sky(wave, phase, /NOEMPIR)`,
+and the `NOEMPIRI`/`NOEMPIRIC` typo described above turned that back into the
+empirical default — the DEIMOS 600 model, which starts at 5001 Å and so covered
+none of the blue channel. Here LRIS gets `combined`, whose blue half is the
+recovered LRIS measurement, so the sky is now defined across the whole range the
+instrument sees.
+
+**LRIS's default configuration did not exist**, the same way DEIMOS's did not.
+`lris_calcs2n_wrapper.pro` sets `state.str_instr[0].grating = 'G2'` before
+applying the `grism` keyword — `G2` is a *Kast* grism — so an unqualified run hit
+`lris_thruput.pro`'s `else: stop`. Worse, `x_initlris.pro` had already set the
+blue resolving power from its own `B600` default, so even had the throughput
+lookup survived, R and the throughput would have described different dispersers.
+`B600` is the default here, matching `x_initlris.pro`.
 
 **A `-99` from `single_spec2mag` propagated silently.** A template that does not
 cover its normalising filter now raises `TemplateFilterMismatch` instead of
@@ -543,6 +645,13 @@ red channel's +0.07 mag: that number validates the red curve, not the blue one.
 Supplying the throughput for the as-observed configuration would remove the
 guesswork on both sides.
 
+Porting LRIS did not supply it. The two curves used for the undo are exactly the
+two `instruments/lris.py` offers for `B600` and `600/7500`, so those are now
+shared rather than special-cased — but the configuration the sky frames were
+actually taken in, blue grism 400/3400 with red grating 600/5000 behind dichroic
+500, is not one `lris_thruput.pro` knows and has no measurement in the xidl tree.
+The mismatch stands.
+
 Outside a model's range the nearest measured value is held.
 `sky.median_sky_magnitude` exists to catch a future file whose units are wrong,
 which is how `mkea_sky_LRIS_both.fits` was caught.
@@ -590,7 +699,8 @@ would turn this into a real regression test.
 | `data/sky/lick_sky_d55_2011aug29.fits.gz` | xidl `Obs/Sky/Empirical`; one dark-sky measurement at Mt Hamilton |
 | `data/sky/mkea_sky_*.fits.gz` | xidl `Obs/Sky/Empirical`; new-moon Mauna Kea sky from DEIMOS data |
 | `data/sky/bsky.*`, `data/sky/rsky.*` | LRIS sky frames, Keck I 2017-05-27/28, in e⁻/s/Å/arcsec²; throughput undone at read time |
-| `data/thruput/sens_LRIS*.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; used to undo the LRIS sky throughput |
+| `data/thruput/sens_LRIS*.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; two blue grisms and five red gratings, all behind dichroic D560. The `B600` and `600/7500` pair also undoes the LRIS sky throughput |
+| `data/thruput/sens_LRISb_300_5000_D680.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; the one D680 measurement. Bundled but unusable — no red-side D680 curve exists to pair it with |
 | `data/thruput/sens_DEIMOS_*.fits.gz` | xidl `Obs/S2N/THRU_PUT_DATA`; nine grating/tilt combinations |
 | `data/extinction/mthamextinct.dat` | xidl `Spec/Longslit/calib/extinction` |
 | `data/filters/` | expcalc `Data/filters` (Buser, Cousins, SDSS, Gaia) |
@@ -601,8 +711,8 @@ accepts a `phase` argument and ignores it, exactly as the IDL did.
 
 ## Scope
 
-Four instruments: APF and Kast at Mt Hamilton, HIRES on Keck I, DEIMOS on
-Keck II. All four supported sites have extinction and sky models, with usable
+Five instruments: APF and Kast at Mt Hamilton, HIRES and LRIS on Keck I, DEIMOS
+on Keck II. All supported sites have extinction and sky models, with usable
 Mauna Kea sky coverage from 3102 to 9999 Å. `atmosphere.extinction_for` and
 `sky.sky_for` raise `NotImplementedError` for any other telescope rather than
 quietly substituting the wrong site.
@@ -611,12 +721,16 @@ quietly substituting the wrong site.
 `case str_instr.name` inside `spec_calcs2n.pro`'s Keck II branch, because Keck
 chose its sky model per instrument.
 
-Still unported, both on Keck II and so needing no new site work:
+**That is every instrument the expcalc web ETC serves.** Nothing in `Obs/S2N`
+that the ETC reaches is left on the IDL side.
 
-- **ESI**, single channel with one throughput curve — the most straightforward
-  remaining piece.
-- **LRIS**, the involved one: two channels like Kast, and `lris_thruput.pro`
-  branches on both dichroic and grating.
+ESI has been retired, so obscalc does not support it and will not: the xidl tree
+still carries `esi_thruput.pro` and its companions, but they are deliberately not
+ported.
+
+`apflow` — the low-resolution APF mode in `x_initapflowspec.pro` and
+`apflow_thruput.pro` — is in the xidl tree but is not served by the ETC and is
+not ported.
 
 MTHR (`flg = 3` in `x_inithires.pro`) is on the TMT and would need a new
 telescope and site.

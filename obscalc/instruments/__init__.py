@@ -19,6 +19,10 @@ from .kast import (
     kast_spectrograph,
     kast_thruput,
 )
+from .lris import LrisBackend, lris_spectrograph, lris_thruput
+from .lris import DICHROICS as LRIS_DICHROICS
+from .lris import GRATINGS as LRIS_GRATINGS
+from .lris import GRISMS as LRIS_GRISMS
 
 #: Backends the web layer can serve, keyed on the ``inst`` request parameter.
 #: Registering a new instrument here is all :mod:`obscalc.webapi` needs.
@@ -27,6 +31,7 @@ BACKENDS = {
     "deimos": DeimosBackend(),
     "hires": HiresBackend(),
     "kast": KastBackend(),
+    "lris": LrisBackend(),
 }
 
 
@@ -61,6 +66,10 @@ __all__ = [
     "HIRES_DECKERS",
     "HiresBackend",
     "KastBackend",
+    "LRIS_DICHROICS",
+    "LRIS_GRATINGS",
+    "LRIS_GRISMS",
+    "LrisBackend",
     "ParameterError",
     "apf_spectrograph",
     "apf_thruput",
@@ -70,4 +79,6 @@ __all__ = [
     "hires_thruput",
     "kast_spectrograph",
     "kast_thruput",
+    "lris_spectrograph",
+    "lris_thruput",
 ]

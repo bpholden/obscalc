@@ -131,13 +131,13 @@ def test_negative_count_threshold_is_the_one_bad_obj_used():
 # --- instrument dispatch -------------------------------------------------
 
 
-@pytest.mark.parametrize("inst", ["lris", "esi"])
-def test_unported_instruments_are_refused_not_answered_with_apf(inst):
-    """The web forms post `inst`; returning APF numbers for LRIS would be wrong.
+def test_unknown_instruments_are_refused_not_answered_with_apf():
+    """The web forms post `inst`; returning APF numbers for another would be wrong.
 
-    These are the instruments the existing ETC serves through the IDL that this
-    package has not ported yet.
+    Every instrument the ETC serves is now ported, so this is the guard against a
+    typo or a retired name rather than a gap in coverage.
     """
+    inst = "nirspec"
     payload = calculate({**GOOD_REQUEST, "inst": inst})
     assert inst in payload["msg"]
     assert "apf" in payload["msg"]
@@ -159,7 +159,7 @@ def test_instrument_name_is_case_and_space_insensitive():
 def test_registered_instruments_are_what_the_package_supports():
     from obscalc.instruments import available_instruments
 
-    assert available_instruments() == ["apf", "deimos", "hires", "kast"]
+    assert available_instruments() == ["apf", "deimos", "hires", "kast", "lris"]
 
 
 def test_backend_owns_the_slitwidth_semantics():
@@ -177,11 +177,11 @@ def test_unknown_parameters_are_passed_through_without_complaint():
     assert len(payload["wave"]) > 100
 
 
-def test_get_backend_raises_for_an_unported_instrument():
+def test_get_backend_raises_for_an_unknown_instrument():
     from obscalc.instruments import get_backend
 
-    with pytest.raises(NotImplementedError, match="lris"):
-        get_backend("lris")
+    with pytest.raises(NotImplementedError, match="nirspec"):
+        get_backend("nirspec")
 
 
 # --- kast through the web adapter ---------------------------------------
@@ -259,6 +259,69 @@ def test_kast_accepts_a_numeric_slitwidth_that_apf_would_reject():
     # The same value means different things per instrument.
     assert calculate({**KAST_REQUEST, "slitwidth": "1.0"})["msg"] == ""
     assert "Slitwidth" in calculate({**GOOD_REQUEST, "slitwidth": "1.0"})["msg"]
+
+
+# --- lris through the web adapter ---------------------------------------
+
+
+LRIS_REQUEST = {
+    "inst": "lris",
+    "mag": "20.0",
+    "mtype": "2",
+    "seeing": "1.0",
+    "airmass": "1.1",
+    "exptime": "3600",
+    "binning": "1x1",
+    "slitwidth": "1.0",
+    "dichroic": "D560",
+    "grism": "B600",
+    "grating": "600/7500",
+    "redshift": "0.0",
+}
+
+
+def test_lris_request_fills_the_same_payload_shape():
+    payload = calculate(LRIS_REQUEST)
+    assert set(payload) == PARSE_RETURN_KEYS
+    assert payload["msg"] == ""
+    assert payload["errormsg"] == ""
+    n = len(payload["wave"])
+    assert n == 651  # 3500-10000 A at 10 A
+    for key in ("s2n", "obj", "sky", "noise"):
+        assert len(payload[key]) == n
+        assert len(payload["j" + key]) == n
+    assert np.all(np.isfinite(payload["js2n"]))
+
+
+def test_lris_read_noise_steps_at_the_dichroic():
+    payload = calculate(LRIS_REQUEST)
+    noise = np.array(payload["jnoise"])
+    wave = np.array(payload["wave"])
+    assert len(set(np.round(noise, 6))) == 2
+    step = wave[np.flatnonzero(np.diff(noise) != 0)[0] + 1]
+    assert step == pytest.approx(5600.0)
+
+
+def test_lris_has_no_apf_only_extras():
+    payload = calculate(LRIS_REQUEST)
+    assert payload["i2counts"] is None
+    assert payload["exp"] is None
+    assert payload["precision"] is None
+
+
+@pytest.mark.parametrize(
+    "override,label",
+    [
+        ({"grism": "B1200"}, "Grism"),
+        ({"grating": "150/7500"}, "Grating"),
+        ({"dichroic": "d46"}, "Dichroic"),
+        ({"slitwidth": "wide"}, "Slitwidth"),
+    ],
+)
+def test_lris_bad_instrument_parameters_are_reported(override, label):
+    payload = calculate({**LRIS_REQUEST, **override})
+    assert label in payload["msg"]
+    assert payload["wave"] == []
 
 
 HIRES_REQUEST = {

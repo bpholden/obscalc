@@ -24,6 +24,7 @@ obscalc-apf = "obscalc.apf_cli:main"
 obscalc-kast = "obscalc.kast_cli:main"
 obscalc-hires = "obscalc.hires_cli:main"
 obscalc-deimos = "obscalc.deimos_cli:main"
+obscalc-lris = "obscalc.lris_cli:main"
 
 [tool.setuptools.packages.find]
 include = ["obscalc*"]

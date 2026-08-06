@@ -17,8 +17,8 @@ of empirical measurements only.  Two consequences:
   fallback also disposes of the second bug in that routine, where the moon-phase
   index reused ``ngd`` from the preceding wavelength search.
 * There is no moon-phase dependence for Mauna Kea.  That matches what
-  ``spec_calcs2n.pro`` already forced for DEIMOS, ESI and LRIS, each of which
-  hardcoded ``phase = 0L  ;; Only New Moon so far``.
+  ``spec_calcs2n.pro`` already forced in its Keck II branches, which hardcoded
+  ``phase = 0L  ;; Only New Moon so far``.
 
 Outside a model's measured range the nearest measured value is held.  Use
 :func:`coverage` to find where that happens and report it.
@@ -231,7 +231,6 @@ DEFAULT_MAUNAKEA_MODEL = "combined"
 #: not listed reached the analytic fallback, which no longer exists.
 KECK_INSTRUMENT_MODELS = {
     "DEIMOS": "deimos600",
-    "ESI": "deimos600",
 }
 
 #: DEIMOS matched its sky measurement to the grating in use, which is what

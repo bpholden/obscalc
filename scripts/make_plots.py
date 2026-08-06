@@ -26,6 +26,9 @@ from obscalc.instruments.deimos import DEFAULT_RANGE as DEIMOS_RANGE
 from obscalc.instruments.deimos import deimos_spectrograph, deimos_thruput
 from obscalc.instruments.hires import DEFAULT_RANGE as HIRES_RANGE
 from obscalc.instruments.hires import hires_spectrograph, hires_thruput
+from obscalc.instruments.lris import DEFAULT_RANGE as LRIS_RANGE
+from obscalc.instruments.lris import lris_spectrograph, lris_thruput
+from obscalc.instruments.lris import split_wavelengths as lris_split
 from obscalc.plots import save_qa_figure, save_sky_models_figure
 from obscalc.s2n import Side, run_sides
 from obscalc.structures import Observation
@@ -56,6 +59,16 @@ HIRES_CASES = [
     ("hires-C5-new-mag15", "C5", "new", True, 15.0, 2, 1800.0),
     ("hires-C5-new-mag15-peak", "C5", "new", False, 15.0, 2, 1800.0),
     ("hires-C1-old-mag12", "C1", "old", True, 12.0, 2, 1800.0),
+]
+
+#: LRIS cases: (stem, grism, grating, slit, magnitude, system, seconds).  The
+#: first pair is the point of interest: the default red grating is measured only
+#: to 8191 A, so its throughput goes flat over the last 1800 A of the grid, while
+#: 400/8500 reaches past 10000 A and stays a measurement all the way.
+LRIS_CASES = [
+    ("lris-B600-600_7500-mag20", "B600", "600/7500", 1.0, 20.0, 2, 3600.0),
+    ("lris-B300-400_8500-mag20", "B300", "400/8500", 1.0, 20.0, 2, 3600.0),
+    ("lris-B600-1200_9000-mag20", "B600", "1200/9000", 1.0, 20.0, 2, 3600.0),
 ]
 
 #: DEIMOS cases: (stem, grating, cwave, slit, magnitude, system, seconds).  The
@@ -110,6 +123,27 @@ def hires_figure(outdir, stem, decker, epoch, blaze, mag, mtype, exptime):
     return save_qa_figure(outdir / f"{stem}.png", result, instr, obs)
 
 
+def lris_figure(outdir, stem, grism, grating, slit, mag, mtype, exptime):
+    wave = wavelength_grid(*LRIS_RANGE, 10.0)
+    tel = keck_telescope("KeckI")
+    blue, red = lris_spectrograph(
+        grism=grism, grating=grating, slit=slit, str_tel=tel
+    )
+    thru = lris_thruput(wave, blue, red)
+    blue_index, red_index = lris_split(wave, blue.dichroic)
+    obs = Observation(seeing=1.0, mstar=mag, mtype=mtype, exptime=exptime)
+    result = run_sides(
+        wave,
+        tel,
+        [
+            Side("blue", blue, blue_index, thru[blue_index]),
+            Side("red", red, red_index, thru[red_index]),
+        ],
+        obs,
+    )
+    return save_qa_figure(outdir / f"{stem}.png", result, blue, obs)
+
+
 def deimos_figure(outdir, stem, grating, cwave, slit, mag, mtype, exptime):
     wave = wavelength_grid(*DEIMOS_RANGE, 10.0)
     tel = keck_telescope("KeckII")
@@ -138,6 +172,8 @@ def main(argv=None):
         written.append(hires_figure(outdir, *case))
     for case in DEIMOS_CASES:
         written.append(deimos_figure(outdir, *case))
+    for case in LRIS_CASES:
+        written.append(lris_figure(outdir, *case))
 
     for path in written:
         print(path)

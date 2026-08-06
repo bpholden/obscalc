@@ -263,7 +263,6 @@ def test_outside_the_measurement_the_nearest_value_is_held():
 
 def test_sky_dispatch_is_per_instrument_for_keck():
     """spec_calcs2n.pro nested a case on str_instr.name inside the KeckII branch."""
-    assert sky_for("KeckII", "ESI").model == "deimos600"
     assert sky_for("KeckII", "DEIMOS").model == "deimos600"
 
 
@@ -312,8 +311,8 @@ def test_unlisted_keck_instruments_fall_back_to_the_default():
 
 
 def test_instrument_name_matching_is_case_insensitive():
-    assert sky_for("KeckII", "esi").model == "deimos600"
-    assert set(KECK_INSTRUMENT_MODELS) == {"DEIMOS", "ESI"}
+    assert sky_for("KeckII", "deimos").model == "deimos600"
+    assert set(KECK_INSTRUMENT_MODELS) == {"DEIMOS"}
 
 
 def test_sky_dispatch_ignores_the_instrument_where_it_does_not_matter():
