@@ -367,6 +367,14 @@ measurement.
 
 ## Library
 
+All five instruments are reachable from the top-level namespace. Each contributes
+`<name>_spectrograph` for its parameters and `<name>_thruput` for its measured
+throughput; anything only that instrument has — deckers, dispersers, dichroics,
+sensitivity files — stays in its own module under `obscalc.instruments`.
+
+**Single channel** (APF, HIRES, DEIMOS) goes straight through `spec_calcs2n`,
+which keeps the IDL's signature:
+
 ```python
 import numpy as np
 from obscalc import Observation, apf_spectrograph, apf_telescope, apf_thruput, spec_calcs2n
@@ -382,8 +390,32 @@ result = spec_calcs2n(
 result.sn, result.star, result.sky, result.sn_per_resolution_element
 ```
 
-`spec_calcs2n` keeps the IDL's signature and `S2NResult` carries the ten fields
-of the IDL `fstrct` plus the intermediates its callers recomputed.
+**Two channels** (Kast, LRIS) means two detectors with their own resolution, read
+noise and throughput. Those return an instrument *pair*, `<name>_sides` packages
+it, and `run_sides` runs the engine once per detector and stacks the results onto
+the shared grid:
+
+```python
+from obscalc import Observation, keck_telescope, lris_sides, lris_spectrograph, run_sides
+
+wave = np.arange(3500.0, 10000.0, 10.0)
+tel = keck_telescope("KeckI")
+blue, red = lris_spectrograph(grism="B600", grating="600/7500", str_tel=tel)
+result = run_sides(
+    wave, tel, lris_sides(wave, blue, red),
+    Observation(seeing=1.0, mstar=20.0, mtype=2, exptime=3600.0),
+)
+result.sn                       # stacked, NaN where no detector reaches
+result.side("blue").resolving_power
+```
+
+`S2NResult` carries the ten fields of the IDL `fstrct` plus the intermediates its
+callers recomputed; `StackedResult` holds one per detector in `.sides` and
+exposes them by name through `.side()`. `<name>_sides` is a convenience only —
+it builds the same `Side` objects you would assemble from `<name>_thruput` and
+`split_wavelengths`, and a test asserts the two agree.
+
+For the dictionary the web forms expect, use `obscalc.webapi.calculate` instead.
 
 ## Replacing the IDL in the expcalc web ETC
 

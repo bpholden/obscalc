@@ -203,6 +203,24 @@ def sensitivity_range(sens_file):
     return float(sens_wave.min()), float(sens_wave.max())
 
 
+def kast_sides(wave, blue, red):
+    """The two :class:`~obscalc.s2n.Side` objects for a configuration.
+
+    Everything :func:`obscalc.s2n.run_sides` needs, so a caller does not have to
+    know how the dichroic split is applied::
+
+        blue, red = kast_spectrograph(grism="G2", dichroic="d55")
+        result = run_sides(wave, lick_telescope(),
+                           kast_sides(wave, blue, red), obs)
+    """
+    thru = kast_thruput(wave, blue, red)
+    blue_index, red_index = split_wavelengths(wave, blue.dichroic)
+    return [
+        Side("blue", blue, blue_index, thru[blue_index]),
+        Side("red", red, red_index, thru[red_index]),
+    ]
+
+
 class KastBackend(Backend):
     """Web backend for Kast.
 

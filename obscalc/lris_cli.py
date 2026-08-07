@@ -30,14 +30,13 @@ from .instruments.lris import (
     DICHROICS,
     GRATINGS,
     GRISMS,
+    lris_sides,
     lris_spectrograph,
-    lris_thruput,
     sens_files,
     sensitivity_range,
-    split_wavelengths,
 )
 from .photometry import TemplateFilterMismatch
-from .s2n import Side, run_sides
+from .s2n import run_sides
 from .structures import (
     apply_infil_to_instrument,
     apply_infil_to_observation,
@@ -171,13 +170,7 @@ def main(argv=None):
     tel, (blue, red), obs, wave = _configure(args)
 
     try:
-        thru = lris_thruput(wave, blue, red)
-        blue_index, red_index = split_wavelengths(wave, args.dichroic)
-        sides = [
-            Side("blue", blue, blue_index, thru[blue_index]),
-            Side("red", red, red_index, thru[red_index]),
-        ]
-        result = run_sides(wave, tel, sides, obs)
+        result = run_sides(wave, tel, lris_sides(wave, blue, red), obs)
     except (TemplateFilterMismatch, ParameterError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

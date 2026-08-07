@@ -289,6 +289,24 @@ def lris_thruput(wave, blue, red):
     return np.maximum(thru, MIN_THRUPUT)
 
 
+def lris_sides(wave, blue, red):
+    """The two :class:`~obscalc.s2n.Side` objects for a configuration.
+
+    Everything :func:`obscalc.s2n.run_sides` needs, so a caller does not have to
+    know how the dichroic split is applied::
+
+        blue, red = lris_spectrograph(grism="B600", grating="600/7500")
+        result = run_sides(wave, keck_telescope("KeckI"),
+                           lris_sides(wave, blue, red), obs)
+    """
+    thru = lris_thruput(wave, blue, red)
+    blue_index, red_index = split_wavelengths(wave, blue.dichroic)
+    return [
+        Side("blue", blue, blue_index, thru[blue_index]),
+        Side("red", red, red_index, thru[red_index]),
+    ]
+
+
 class LrisBackend(Backend):
     """Web backend for LRIS.
 

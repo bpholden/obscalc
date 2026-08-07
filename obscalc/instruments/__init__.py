@@ -16,10 +16,11 @@ from .kast import (
     GRATINGS,
     GRISMS,
     KastBackend,
+    kast_sides,
     kast_spectrograph,
     kast_thruput,
 )
-from .lris import LrisBackend, lris_spectrograph, lris_thruput
+from .lris import LrisBackend, lris_sides, lris_spectrograph, lris_thruput
 from .lris import DICHROICS as LRIS_DICHROICS
 from .lris import GRATINGS as LRIS_GRATINGS
 from .lris import GRISMS as LRIS_GRISMS
@@ -77,8 +78,10 @@ __all__ = [
     "get_backend",
     "hires_spectrograph",
     "hires_thruput",
+    "kast_sides",
     "kast_spectrograph",
     "kast_thruput",
+    "lris_sides",
     "lris_spectrograph",
     "lris_thruput",
 ]
