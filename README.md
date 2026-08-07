@@ -234,12 +234,21 @@ nothing else: it does not narrow the wavelength grid, so you can ask for
 wavelengths a configuration does not record.
 
 **Every configuration's measurement is narrower than the default 4000–10000 Å
-grid**, so the driver says where the throughput is held rather than measured:
+grid**, so every DEIMOS run goes dead somewhere. As for Kast and LRIS,
+wavelengths outside the measurement carry no throughput at all:
 
 ```
-WARNING: 4000-4010, 9350-10000 A lie outside that measurement. Throughput there
-is held at the nearest measured value, so those counts are an extrapolation.
+WARNING: no usable throughput over 9350-10000 A (11% of the range). This
+configuration reaches beyond its throughput measurement; narrow the wavelength
+range or change disperser.
+
+Grating 1200G tilted to 7000 A: throughput from sens_DEIMOS_1200G.fits,
+  measured over 4014-9348 A
 ```
+
+The warning ignores dead runs shorter than three grid points, so the 4000–4014 Å
+sliver below this measurement's blue edge is zeroed without being named; the
+measured range on the line below it is what tells you.
 
 `--slitwidth` is a width in arcsec here, as for Kast.
 
@@ -257,10 +266,12 @@ obscalc-lris --mag 20 --mtype 2 --exptime 3600 \
 
 5600-10000 A [red]: R = 11820, 7.44 pixels across the slit, 23 rows extracted, ...
   slit transmission 0.6447, read noise 21.58 e-, dark 0.02 e-
-  median S/N 18.39 per binned pixel, 50.15 per resolution element
+  median S/N 16.07 per binned pixel, 43.83 per resolution element
 
 Overall median S/N 23.67 per binned pixel
 Peak S/N 42.31 at 4980 A
+
+WARNING: no usable throughput over 5600-5620, 8200-10000 A (28% of the range). ...
 
 Grism B600 with dichroic D560: throughput from sens_LRISb_600_4000_D560.fits,
   measured over 3101-5596 A
@@ -283,7 +294,7 @@ carries whichever dichroic was in the beam when it was taken.
 | `B600` (default) | 7500 | 3101–5596 Å |
 | `B300` | 3304 | 2148–7652 Å |
 
-| Red grating | R | Measured over | Held on the red side |
+| Red grating | R | Measured over | Dead on the red side |
 | --- | --- | --- | --- |
 | `400/8500` | 8151 | 5529–10354 Å | none |
 | `600/10000` | 11820 | 6567–9847 Å | 25% |
@@ -293,19 +304,24 @@ carries whichever dichroic was in the beam when it was taken.
 
 Both grisms cover the whole blue side. **The red side is where to pay attention**:
 four of the five gratings are measured over less than the 5600–10000 Å the red
-side receives, and the default `600/7500` leaves 42% of it held at the nearest
-measured value. The driver says where:
+side receives, and the default `600/7500` misses 42% of it.
+
+Wavelengths outside a measurement carry **no throughput at all** — neither
+extrapolated nor held at the nearest measured value — so the S/N there is
+effectively zero and the output shows the true limits of the configuration
+rather than a plausible-looking number. The driver reports them the same way it
+does for Kast:
 
 ```
-WARNING: 5600-5620 A [red], 8200-10000 A [red] lie outside those measurements.
-Throughput there is held at the nearest measured value, so those counts are an
-extrapolation; narrow the range with --wvmn/--wvmx to avoid it.
+WARNING: no usable throughput over 5600-5620, 8200-10000 A (28% of the range).
+This configuration reaches beyond its throughput measurement; narrow the
+wavelength range or change disperser.
 ```
 
 `--grating 400/8500` is the one configuration measured across the entire grid.
 Note also that the 5600–5620 Å sliver cannot be trimmed away: the dichroic hands
 over at 5600 Å but no red measurement starts before 5529 Å except `400/8500`, so
-with `600/7500` the first three grid points of the red side are always held.
+with `600/7500` the first three grid points of the red side are always dead.
 
 ### Looking at plots
 
@@ -321,8 +337,9 @@ That writes eighteen figures: four APF configurations and three HIRES ones, each
 set including a blaze on/off pair where the echelle order structure shows; three
 Kast ones (including `G3 + d55`, where the throughput dead zone is obvious); four
 DEIMOS ones (including a `900Z` tilt pair, where the measured range visibly
-moves); three LRIS ones, where the throughput panel goes flat wherever a grating
-has run past its measurement — obvious for `1200/9000`, absent for `400/8500`;
+moves); three LRIS ones, where the throughput panel drops to zero wherever a
+grating has run out of measurement — most of the red side for `1200/9000`, none
+of it for `400/8500`;
 and the Mauna Kea sky-model diagnostic from `plots.sky_models_figure`, which
 shows the recovered LRIS red channel lying on top of the independent DEIMOS
 measurement.
@@ -500,9 +517,10 @@ Two problems in one instrument:
   zero with `> 0.`, which catches a curve falling negative but not one rising
   absurdly. Extrapolating the `600Z` measurement at its 5000 Å tilt, which stops
   at 8035 Å, reaches **0.848 by 10000 Å — more than twice the best efficiency ever
-  measured for any DEIMOS configuration (0.358)**. The nearest measured value is
-  held instead. The zero clip is kept: `sens_DEIMOS_900_500nm` holds 133 slightly
-  negative efficiencies inside its own range.
+  measured for any DEIMOS configuration (0.358)**. Outside the measurement the
+  throughput is dead instead, as for Kast and LRIS. The zero clip is kept for
+  wavelengths *inside* it, where it is still needed: `sens_DEIMOS_900_500nm`
+  holds 133 slightly negative efficiencies of its own.
 
 **DEIMOS's sky model follows its grating.** `spec_calcs2n.pro` selected
 `flg_sky = 1` when `str_instr.grating EQ '1200'`, and
@@ -553,8 +571,22 @@ interval to 10000 Å gives an efficiency of **0.415 — above every red-side LRI
 measurement (best 0.378), above anything on its own curve (peak 0.221), and 3.3×
 the 0.125 measured at its red end**. `1200/9000` and `831/8200` run negative
 instead and would be floored, hiding 1600 Å of grid behind a number that only
-looks small. The red end is held at the nearest measured value, as for DEIMOS,
-and `unmeasured_ranges` reports where.
+looks small.
+
+Neither end is estimated here, and the same rule now applies to **every**
+instrument whose throughput comes from a measured curve — Kast, DEIMOS and LRIS.
+**Outside the range its sensitivity file covers, a configuration gets no
+throughput at all**: `MIN_THRUPUT`, 1e-5, the floor `kast_thruput.pro` and
+`lris_thruput.pro` already used. The reported S/N there falls to zero and shows
+where the spectrograph actually stops. A measurement is the evidence that a
+configuration records a wavelength; where there is none, neither extrapolating
+nor holding the nearest value is warranted. `cli_common.dead_ranges` picks these
+up and every driver reports them the same way.
+
+The two echelles are the exception, and not really one: APF and HIRES hold the
+end value for orders outside their tables, because there the table is indexed by
+*order* rather than by wavelength and the question is which order a wavelength
+belongs to, not whether a wavelength was measured.
 
 **LRIS's sky branch in `spec_calcs2n.pro` was unreachable.** The `'LRIS'` case
 selecting `flg_sky = 2` — the `mkea_sky_LRIS_both.fits` model — is nested inside

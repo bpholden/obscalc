@@ -35,7 +35,6 @@ from .instruments.lris import (
     sens_files,
     sensitivity_range,
     split_wavelengths,
-    unmeasured_ranges,
 )
 from .photometry import TemplateFilterMismatch
 from .s2n import Side, run_sides
@@ -127,8 +126,13 @@ def _configure(args):
     return tel, (blue, red), obs, wavelength_grid(wvmn, wvmx, args.dwv)
 
 
-def _report_configuration(blue, red, wave, stream=None):
-    """Say which measurements are in use, where they stop, and what is held."""
+def _report_configuration(blue, red, stream=None):
+    """Say which measurements are in use and where each one stops.
+
+    Wavelengths outside them carry no throughput at all, which ``summarise``
+    already reports as a dead range; these two lines say which measurement ran
+    out and where.
+    """
     stream = sys.stdout if stream is None else stream
     blue_file, red_file = sens_files(blue, red)
     lines = [""]
@@ -140,15 +144,6 @@ def _report_configuration(blue, red, wave, stream=None):
         lines.append(
             f"{label} {disperser} with dichroic {blue.dichroic}: throughput from "
             f"{sens_file}, measured over {low:.0f}-{high:.0f} A"
-        )
-
-    held = unmeasured_ranges(wave, blue, red)
-    if held:
-        spans = ", ".join(f"{lo:.0f}-{hi:.0f} A [{name}]" for name, lo, hi in held)
-        lines.append(
-            f"WARNING: {spans} lie outside those measurements. Throughput there "
-            "is held at the nearest measured value, so those counts are an "
-            "extrapolation; narrow the range with --wvmn/--wvmx to avoid it."
         )
     print("\n".join(lines), file=stream)
 
@@ -189,7 +184,7 @@ def main(argv=None):
 
     if not args.quiet:
         summarise(result, obs, instr=blue)
-        _report_configuration(blue, red, wave)
+        _report_configuration(blue, red)
     write_outputs(args, result, obs, instr=blue)
     return 0
 

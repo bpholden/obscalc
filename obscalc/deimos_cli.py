@@ -27,7 +27,6 @@ from .instruments.deimos import (
     deimos_thruput,
     sens_file,
     sensitivity_range,
-    unmeasured_ranges,
 )
 from .photometry import TemplateFilterMismatch
 from .s2n import Side, run_sides
@@ -113,8 +112,12 @@ def _configure(args):
     return tel, instr, obs, wavelength_grid(wvmn, wvmx, args.dwv)
 
 
-def _report_configuration(instr, wave, stream=None):
-    """Say which measurement is in use, where it stops, and what is held."""
+def _report_configuration(instr, stream=None):
+    """Say which measurement is in use and where it stops.
+
+    Wavelengths outside it carry no throughput at all, which ``summarise``
+    already reports as a dead range; this line says which measurement ran out.
+    """
     stream = sys.stdout if stream is None else stream
     low, high = sensitivity_range(instr.grating, instr.cwave)
     print(
@@ -122,15 +125,6 @@ def _report_configuration(instr, wave, stream=None):
         f"{sens_file(instr.grating, instr.cwave)}, measured over {low:.0f}-{high:.0f} A",
         file=stream,
     )
-    held = unmeasured_ranges(wave, instr.grating, instr.cwave)
-    if held:
-        spans = ", ".join(f"{lo:.0f}-{hi:.0f}" for lo, hi in held)
-        print(
-            f"WARNING: {spans} A lie outside that measurement. Throughput there is "
-            "held at the nearest measured value, so those counts are an "
-            "extrapolation; narrow the range with --wvmn/--wvmx to avoid it.",
-            file=stream,
-        )
 
 
 def main(argv=None):
@@ -165,7 +159,7 @@ def main(argv=None):
 
     if not args.quiet:
         summarise(result, obs, instr=instr)
-        _report_configuration(instr, wave)
+        _report_configuration(instr)
     write_outputs(args, result, obs, instr=instr)
     return 0
 

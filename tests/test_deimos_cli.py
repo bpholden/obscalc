@@ -61,16 +61,20 @@ def test_the_tilt_changes_which_file_is_used(capsys):
 
 
 def test_the_default_grid_warns_that_it_outruns_the_measurement(capsys):
-    """Every configuration's measurement is narrower than 4000-10000 A."""
+    """Every configuration's measurement is narrower than 4000-10000 A.
+
+    Outside it the throughput is dead, not held, so this is the shared warning
+    Kast and LRIS get.
+    """
     assert main([]) == 0
     out = capsys.readouterr().out
-    assert "lie outside that measurement" in out
-    assert "9350-10000" in out
+    assert "WARNING: no usable throughput over 9350-10000 A" in out
+    assert "measured over 4014-9348 A" in out
 
 
 def test_narrowing_the_range_removes_the_warning(capsys):
     assert main(["--wvmn", "4020", "--wvmx", "9340"]) == 0
-    assert "lie outside that measurement" not in capsys.readouterr().out
+    assert "no usable throughput" not in capsys.readouterr().out
 
 
 def test_slitwidth_is_a_width_in_arcsec(capsys):

@@ -27,7 +27,6 @@ from obscalc.instruments.lris import (
     sens_files,
     sensitivity_range,
     split_wavelengths,
-    unmeasured_ranges,
 )
 from obscalc.s2n import Side, run_sides
 from obscalc.sky import sky_for
@@ -193,23 +192,26 @@ def test_throughput_is_floored_and_finite_everywhere():
         assert np.all(thru < 1.0)
 
 
-def test_both_ends_are_held_not_extrapolated():
-    """The divergence from lris_thruput.pro, which held only the blue end.
+def test_outside_the_measurement_the_throughput_is_dead():
+    """Neither extrapolated nor held: a wavelength with no measurement gets none.
 
-    600/7500 stops at 8191 A.  Continuing its last interval to 10000 A gives 0.415,
-    above every LRIS measurement on either side; holding gives the 0.125 measured
-    at the red end of the curve.
+    That is what makes the S/N show the true limits of the configuration rather
+    than a plausible number.  lris_thruput.pro held the blue end and extrapolated
+    the red one; both ends are dead here.
     """
+    from obscalc.cli_common import DEAD_THRUPUT
+
     blue, red = lris_spectrograph(grating="600/7500")
     _, red_file = sens_files(blue, red)
-    sens_wave, sens_eff = _sensitivity(red_file)
+    sens_wave, _ = _sensitivity(red_file)
 
-    thru = lris_thruput(np.array([sens_wave[-1] + 1000.0]), blue, red)
-    assert thru[0] == pytest.approx(sens_eff[-1])
-    assert thru[0] < 0.15
+    outside = np.array([5600.0, sens_wave[-1] + 1000.0])
+    assert np.all(lris_thruput(outside, blue, red) == MIN_THRUPUT)
+    # Below what the drivers call dead, so they report it rather than hide it.
+    assert MIN_THRUPUT < DEAD_THRUPUT
 
-    below = lris_thruput(np.array([5600.0]), blue, red)
-    assert below[0] == pytest.approx(sens_eff[0])
+    inside = np.array([sens_wave[0] + 100.0])
+    assert lris_thruput(inside, blue, red)[0] > 0.05
 
 
 def test_the_idl_extrapolation_would_have_exceeded_every_measurement():
@@ -231,19 +233,33 @@ def test_the_idl_extrapolation_would_have_exceeded_every_measurement():
     assert extrapolated > sens_eff.max()
 
 
-def test_unmeasured_ranges_only_counts_wavelengths_a_side_records():
-    """The blue curve stopping at 5596 A does not matter: the red side has it."""
-    blue, red = lris_spectrograph(grism="B600", grating="600/7500")
-    held = unmeasured_ranges(GRID, blue, red)
-    assert all(name == "red" for name, _, _ in held)
-    spans = [(lo, hi) for _, lo, hi in held]
-    assert (8200.0, 9990.0) in spans
+def test_dead_ranges_are_only_where_the_recording_side_has_no_measurement():
+    """The blue curve stopping at 5596 A does not matter: the red side has it.
+
+    Each side is judged against its own measurement over its own wavelengths, so
+    the only dead spans are the red side's two.
+    """
+    from obscalc.cli_common import dead_ranges
+
+    tel, sides = sides_for(grism="B600", grating="600/7500")
+    obs = Observation(seeing=1.0, mstar=20.0, mtype=2, exptime=3600.0)
+    result = run_sides(GRID, tel, sides, obs)
+
+    assert dead_ranges(result) == [(5600.0, 5620.0), (8200.0, 9990.0)]
+    # Everything the blue side records is measured, up to the 5600 A handover.
+    assert np.all(np.asarray(result.thru)[GRID < 5600.0] > MIN_THRUPUT)
 
 
-def test_a_fully_covering_configuration_holds_nothing():
-    """B300 is measured 2148-7652 and 400/8500 to 10354, so nothing is held."""
-    blue, red = lris_spectrograph(grism="B300", grating="400/8500")
-    assert unmeasured_ranges(GRID, blue, red) == []
+def test_a_fully_covering_configuration_has_nothing_dead():
+    """B300 is measured 2148-7652 and 400/8500 to 10354, so nothing is dead."""
+    from obscalc.cli_common import dead_ranges
+
+    tel, sides = sides_for(grism="B300", grating="400/8500")
+    obs = Observation(seeing=1.0, mstar=20.0, mtype=2, exptime=3600.0)
+    result = run_sides(GRID, tel, sides, obs)
+
+    assert dead_ranges(result) == []
+    assert np.all(np.asarray(result.thru) > MIN_THRUPUT)
 
 
 def test_sensitivity_ranges_are_plausible():

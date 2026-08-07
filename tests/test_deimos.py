@@ -12,6 +12,7 @@ from obscalc.instruments.deimos import (
     DEFAULT_GRATING,
     DEFAULT_RANGE,
     GRATINGS,
+    MIN_THRUPUT,
     SENS_FILES,
     DeimosBackend,
     _sensitivity,
@@ -19,7 +20,6 @@ from obscalc.instruments.deimos import (
     deimos_thruput,
     sens_file,
     sensitivity_range,
-    unmeasured_ranges,
 )
 from obscalc.s2n import Side, run_sides
 from obscalc.structures import Observation
@@ -144,24 +144,26 @@ def test_throughput_is_a_plausible_fraction_everywhere():
         assert thru.max() <= 0.36, label
 
 
-def test_throughput_is_held_not_extrapolated_beyond_the_measurement():
-    """deimos_thruput.pro extrapolated and clipped only at zero.
+def test_outside_the_measurement_the_throughput_is_dead():
+    """Neither extrapolated nor held, as for LRIS and Kast.
 
-    For the 600Z grating at its 5000 A tilt, measured only to 8035 A, that reached
-    0.848 by 10000 A -- more than twice the best efficiency measured for any
-    DEIMOS configuration.
+    deimos_thruput.pro extrapolated and clipped only at zero: for the 600Z
+    grating at its 5000 A tilt, measured only to 8035 A, that reached 0.848 by
+    10000 A -- more than twice the best efficiency measured for any DEIMOS
+    configuration.
     """
-    instr = deimos_spectrograph(grating="600Z", cwave=5000)
-    _, eff = _sensitivity(sens_file("600Z", 5000))
-    red_end = sensitivity_range("600Z", 5000)[1]
+    from obscalc.cli_common import DEAD_THRUPUT
 
-    assert deimos_thruput([10000.0], instr)[0] == pytest.approx(
-        deimos_thruput([red_end], instr)[0], abs=1e-6
-    )
-    assert deimos_thruput([10000.0], instr)[0] < 0.36
-    assert deimos_thruput([1000.0], instr)[0] == pytest.approx(
-        deimos_thruput([sensitivity_range("600Z", 5000)[0]], instr)[0], abs=1e-6
-    )
+    instr = deimos_spectrograph(grating="600Z", cwave=5000)
+    low, high = sensitivity_range("600Z", 5000)
+
+    assert deimos_thruput([high + 1.0], instr)[0] == MIN_THRUPUT
+    assert deimos_thruput([10000.0], instr)[0] == MIN_THRUPUT
+    assert deimos_thruput([low - 1.0], instr)[0] == MIN_THRUPUT
+    assert MIN_THRUPUT < DEAD_THRUPUT
+    # Still a real measurement inside the range.  Taken at the middle, since the
+    # curve is only 0.009 a hundred Angstroms in from its blue edge.
+    assert deimos_thruput([(low + high) / 2.0], instr)[0] > 0.1
 
 
 def test_negative_efficiencies_inside_a_measurement_are_clipped():
@@ -179,18 +181,22 @@ def test_columns_are_read_by_name_not_position():
     assert eff.max() < 1.0
 
 
-def test_unmeasured_ranges_reports_both_ends():
-    held = unmeasured_ranges(GRID, "1200G", 7000)
+def test_both_ends_of_the_grid_go_dead():
+    """Every DEIMOS measurement is narrower than the 4000-10000 A grid."""
+    instr = deimos_spectrograph(grating="1200G", cwave=7000)
     low, high = sensitivity_range("1200G", 7000)
-    assert len(held) == 2
-    assert held[0][0] == GRID.min() and held[0][1] < low
-    assert held[1][0] > high and held[1][1] == GRID.max()
+    thru = deimos_thruput(GRID, instr)
+
+    assert np.all(thru[GRID < low] == MIN_THRUPUT)
+    assert np.all(thru[GRID > high] == MIN_THRUPUT)
+    assert (thru == MIN_THRUPUT).sum() == ((GRID < low) | (GRID > high)).sum()
 
 
-def test_unmeasured_ranges_is_empty_inside_the_measurement():
+def test_a_grid_inside_the_measurement_has_nothing_dead():
     low, high = sensitivity_range("1200G", 7000)
     inside = np.arange(low + 10.0, high - 10.0, 10.0)
-    assert unmeasured_ranges(inside, "1200G", 7000) == []
+    instr = deimos_spectrograph(grating="1200G", cwave=7000)
+    assert np.all(deimos_thruput(inside, instr) > MIN_THRUPUT)
 
 
 # --- through the engine ------------------------------------------------------

@@ -68,9 +68,12 @@ RED_SENS_FILES = {
 #: of record rather than a missing file.
 UNUSABLE_SENS_FILES = {("B300", "D680"): "sens_LRISb_300_5000_D680.fits"}
 
-#: Floor applied to the throughput, from ``lris_thruput.pro``.  Kept because
-#: ``sens_LRISr_400_8500`` dips to 0.0004 at its blue end and the engine divides
-#: by nothing but must not see a negative.
+#: Floor applied to the throughput, from ``lris_thruput.pro``, and the value used
+#: outside a measurement's range -- see :func:`_side_thruput`.  Zero would do as
+#: well physically, but this keeps the IDL's own floor and leaves nothing that can
+#: divide to a NaN downstream.  It is below
+#: :data:`obscalc.cli_common.DEAD_THRUPUT`, so the drivers report these ranges as
+#: dead rather than merely faint.
 MIN_THRUPUT = 1e-5
 
 # Defaults come from ``lris_calcs2n_wrapper.pro``, not from ``x_initlris.pro``.
@@ -191,27 +194,32 @@ def sensitivity_range(sens_file):
 
 
 def _side_thruput(wave, sens_file):
-    """Interpolate one side's throughput, holding both ends flat.
+    """Interpolate one side's throughput, dead outside the measured range.
 
-    ``lris_thruput.pro`` held the blue end (``wave < sens.wav[0]`` takes
-    ``sens.eff[0]``) but let ``interpol`` extrapolate past the red end, clipping
-    only with ``> 1e-5``.  That catches a curve falling negative and misses one
-    rising, and here it is the rising case that bites: ``600/7500`` is measured
-    only to 8191 A, and continuing its last interval to the 10000 A end of the
-    default grid reaches an efficiency of 0.415 -- above every red-side
-    measurement here (best 0.378), above anything on its own curve (peak 0.221),
-    and 3.3 times the 0.125 measured at the red end of it.  ``1200/9000`` and
-    ``831/8200`` instead run negative and would be floored, which hides 1600 A of
-    grid behind a number that only looks small.
+    Outside the wavelengths its sensitivity file covers, a configuration gets
+    :data:`MIN_THRUPUT` rather than any estimate.  A measurement is the evidence
+    that the spectrograph records a wavelength at all, so where there is none the
+    honest answer is that the configuration does not reach there -- and the S/N
+    then shows the true limits of the instrument instead of a plausible-looking
+    number.  :func:`obscalc.cli_common.dead_ranges` picks these up and the drivers
+    report them, exactly as they do for Kast.
 
-    So the red end is held too, as :func:`obscalc.instruments.deimos.deimos_thruput`
-    does for the same reason.  :func:`unmeasured_ranges` reports where.
+    ``lris_thruput.pro`` did something different at each end, and neither works.
+    It held the blue end (``wave < sens.wav[0]`` takes ``sens.eff[0]``) but let
+    ``interpol`` extrapolate past the red end, clipping only with ``> 1e-5``.
+    That floor catches a curve falling negative and misses one rising, and the
+    rising case is the default: ``600/7500`` is measured only to 8191 A, and
+    continuing its last interval to the 10000 A end of the default grid reaches an
+    efficiency of 0.415 -- above every red-side measurement here (best 0.378),
+    above anything on its own curve (peak 0.221), and 3.3 times the 0.125 measured
+    at the red end of it.  ``1200/9000`` and ``831/8200`` instead run negative and
+    would be floored, which hides 1600 A of grid behind a number that only looks
+    small.
     """
     sens_wave, sens_eff = _sensitivity(sens_file)
     thru = interpol(sens_eff, sens_wave, wave)
-    thru = np.where(wave < sens_wave[0], sens_eff[0], thru)
-    thru = np.where(wave > sens_wave[-1], sens_eff[-1], thru)
-    return thru
+    outside = (wave < sens_wave[0]) | (wave > sens_wave[-1])
+    return np.where(outside, MIN_THRUPUT, thru)
 
 
 def split_wavelengths(wave, dichroic):
@@ -279,39 +287,6 @@ def lris_thruput(wave, blue, red):
         thru[red_index] = _side_thruput(wave[red_index], red_file)
 
     return np.maximum(thru, MIN_THRUPUT)
-
-
-def unmeasured_ranges(wave, blue, red):
-    """Where each side reaches past its measurement, as ``(side, low, high)``.
-
-    Throughput there is held at the nearest measured value, so the counts are an
-    extrapolation however plausible they look.  Only the wavelengths a side
-    actually records count: the blue measurement stopping at 5596 A does not
-    matter for a grid that hands over to the red side at 5600 A.
-    """
-    wave = np.asarray(wave, dtype=float)
-    blue_index, red_index = split_wavelengths(wave, blue.dichroic)
-    blue_file, red_file = sens_files(blue, red)
-
-    held = []
-    for name, index, sens_file in (
-        ("blue", blue_index, blue_file),
-        ("red", red_index, red_file),
-    ):
-        if not index.size:
-            continue
-        low, high = sensitivity_range(sens_file)
-        side_wave = wave[index]
-        for outside in (side_wave < low, side_wave > high):
-            if outside.any():
-                held.append(
-                    (
-                        name,
-                        float(side_wave[outside].min()),
-                        float(side_wave[outside].max()),
-                    )
-                )
-    return held
 
 
 class LrisBackend(Backend):

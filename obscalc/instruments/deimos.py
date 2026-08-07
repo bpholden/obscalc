@@ -37,6 +37,14 @@ GRATINGS = {
 #: integers, so nothing in between is available.
 CENTRAL_WAVES = (5000, 6000, 7000, 8000)
 
+#: Throughput given to wavelengths outside a measurement's range -- see
+#: :func:`deimos_thruput`.  ``deimos_thruput.pro`` has no such floor, only a
+#: ``> 0.`` clip; this is the value ``kast_thruput.pro`` and ``lris_thruput.pro``
+#: use, kept the same here so all three instruments go dead at the same level.
+#: It is below :data:`obscalc.cli_common.DEAD_THRUPUT`, so the drivers report
+#: these ranges as dead rather than merely faint.
+MIN_THRUPUT = 1e-5
+
 #: Sensitivity file for each (grating, central wavelength).
 #: ``600Z`` at 8000 A reuses the 750 nm measurement: no 850 nm one was ever taken,
 #: and ``deimos_thruput.pro`` pointed both tilts at the same file.
@@ -168,17 +176,24 @@ def deimos_thruput(wave, instr=None, grating=None, cwave=None):
     The configuration comes from ``instr`` unless ``grating``/``cwave`` override
     it.
 
-    Outside the measured range the nearest measured value is held.
-    ``deimos_thruput.pro`` extrapolated instead, clipping only at zero with
-    ``> 0.``, which catches a curve falling negative but not one rising absurdly.
-    The default 4000-10000 A grid is wider than every one of the nine
-    measurements, and extrapolating the 600Z curve at its 5000 A tilt -- measured
-    only to 8035 A -- reaches 0.848 by 10000 A, against a best measured efficiency
-    of 0.358 across all DEIMOS configurations.  Use :func:`sensitivity_range` to
-    see where a configuration stops being measured.
+    Outside the range its sensitivity file covers, a configuration gets
+    :data:`MIN_THRUPUT` rather than any estimate, as for LRIS and Kast: a
+    measurement is the evidence that the spectrograph records a wavelength at
+    all, so where there is none the reported S/N should fall to zero and show the
+    true limits of the configuration.  :func:`obscalc.cli_common.dead_ranges`
+    picks these up and the driver reports them.  **Every** DEIMOS configuration is
+    measured over less than the default 4000-10000 A grid, so this always bites
+    somewhere; use :func:`sensitivity_range` to see where, or narrow the grid.
 
-    The zero clip is kept: ``sens_DEIMOS_900_500nm`` holds 133 slightly negative
-    efficiencies inside its own range.
+    ``deimos_thruput.pro`` extrapolated instead, clipping only at zero with
+    ``> 0.``, which catches a curve falling negative but not one rising absurdly:
+    extrapolating the 600Z curve at its 5000 A tilt -- measured only to 8035 A --
+    reaches 0.848 by 10000 A, against a best measured efficiency of 0.358 across
+    all DEIMOS configurations.
+
+    The zero clip is kept for wavelengths *inside* the measurement, where it is
+    still needed: ``sens_DEIMOS_900_500nm`` holds 133 slightly negative
+    efficiencies of its own.
     """
     if instr is not None:
         grating = grating or instr.grating
@@ -191,28 +206,9 @@ def deimos_thruput(wave, instr=None, grating=None, cwave=None):
     order = np.argsort(sens_wave)
     sens_wave, sens_eff = sens_wave[order], sens_eff[order]
 
-    thru = interpol(sens_eff, sens_wave, wave)
-    thru = np.where(wave < sens_wave[0], sens_eff[0], thru)
-    thru = np.where(wave > sens_wave[-1], sens_eff[-1], thru)
-    return np.maximum(thru, 0.0)
-
-
-def unmeasured_ranges(wave, grating=DEFAULT_GRATING, cwave=DEFAULT_CWAVE):
-    """Parts of ``wave`` outside the configuration's measurement, as (low, high).
-
-    Throughput there is held at the nearest measured value rather than measured,
-    so the counts are an extrapolation however plausible they look.
-    """
-    wave = np.asarray(wave, dtype=float)
-    low, high = sensitivity_range(grating, cwave)
-    ranges = []
-    below = wave < low
-    above = wave > high
-    if below.any():
-        ranges.append((float(wave[below].min()), float(wave[below].max())))
-    if above.any():
-        ranges.append((float(wave[above].min()), float(wave[above].max())))
-    return ranges
+    thru = np.maximum(interpol(sens_eff, sens_wave, wave), 0.0)
+    outside = (wave < sens_wave[0]) | (wave > sens_wave[-1])
+    return np.where(outside, MIN_THRUPUT, thru)
 
 
 class DeimosBackend(Backend):

@@ -44,13 +44,16 @@ def test_configuration_report_names_both_measurements(capsys):
     assert "measured over 5628-8191 A" in out
 
 
-def test_the_default_configuration_warns_about_the_held_red_end(capsys):
-    """600/7500 stops at 8191 A but the default grid runs to 10000."""
+def test_the_default_configuration_warns_that_the_red_end_is_dead(capsys):
+    """600/7500 stops at 8191 A but the default grid runs to 10000.
+
+    Outside the measurement the throughput is dead, not held, so this is the same
+    warning Kast gets rather than an LRIS-specific one.
+    """
     assert main([]) == 0
     out = capsys.readouterr().out
-    assert "WARNING" in out
-    assert "8200-10000 A [red]" in out
-    assert "held at the nearest measured value" in out
+    assert "WARNING: no usable throughput over 5600-5620, 8200-10000 A" in out
+    assert "28% of the range" in out
 
 
 def test_a_fully_measured_configuration_does_not_warn(capsys):
@@ -69,7 +72,7 @@ def test_narrowing_the_grid_leaves_only_the_handover_gap(capsys):
     assert main(["--wvmx", "8100"]) == 0
     out = capsys.readouterr().out
     assert "8200-10000" not in out
-    assert "5600-5620 A [red]" in out
+    assert "no usable throughput over 5600-5620 A" in out
 
 
 @pytest.mark.parametrize("grism", sorted(GRISMS))
