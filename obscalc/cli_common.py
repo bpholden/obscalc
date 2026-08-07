@@ -13,7 +13,18 @@ from .structures import Observation
 
 #: Meta keys that describe one detector.  Kept to six characters so a side
 #: prefix still fits in a FITS keyword.
-_SIDE_META = ("slit0", "rows", "cols", "nsky", "readno", "ndark", "binc", "binr", "R")
+_SIDE_META = (
+    "slit0",
+    "rows",
+    "cols",
+    "nsky",
+    "readno",
+    "ndark",
+    "binc",
+    "binr",
+    "R",
+    "Rpix",
+)
 
 
 def wavelength_grid(wvmn, wvmx, dwv):
@@ -126,7 +137,10 @@ def results_table(result):
             "ndark": side.ndark,
             "binc": side.binc,
             "binr": side.binr,
-            "R": side.R,
+            # Delivered resolving power, R/columns.  Rpix is the underlying
+            # lambda / (Angstroms per native pixel) the instrument tables hold.
+            "R": side.resolving_power,
+            "Rpix": side.R,
         }
         for key in _SIDE_META:
             table.meta[f"{prefix}{key}"] = values[key]
@@ -193,7 +207,8 @@ def summarise(result, obs, instr=None, extras=None, stream=None):
         wave = result.wave[index]
         lines += [
             "",
-            f"{wave.min():.0f}-{wave.max():.0f} A{label}: R = {side.R:.0f}, "
+            f"{wave.min():.0f}-{wave.max():.0f} A{label}: "
+            f"R = {side.resolving_power:.0f}, "
             f"{side.columns:.2f} pixels across the slit, "
             f"{side.rows} rows extracted, {side.nsky:.2f} sky rows per object row",
             f"  slit transmission {side.slit0:.4f}, read noise {side.noise:.2f} e-, "

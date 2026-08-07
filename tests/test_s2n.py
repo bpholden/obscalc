@@ -129,3 +129,19 @@ def test_default_magnitude_and_mtype_follow_the_idl(setup):
 def test_resolution_element_signal_to_noise_is_higher_than_per_pixel(setup):
     result = run(*setup)
     assert np.all(result.sn_per_resolution_element > result.sn)
+
+
+def test_resolving_power_is_delivered_not_per_native_pixel(setup):
+    """instr.R is a reciprocal dispersion; the resolving power divides by the slit.
+
+    Every x_init*.pro tags its R "1 pixel (native) dispersion", so it is
+    lambda / (Angstroms per native pixel), not lambda / FWHM.  The slit projects
+    onto `columns` pixels, so the delivered resolving power is R / columns --
+    which is also wave / projslit, the way the engine forms the projected slit
+    width in Angstroms.
+    """
+    result = run(*setup)
+
+    assert result.resolving_power == pytest.approx(result.R / result.columns)
+    assert result.resolving_power < result.R
+    assert np.allclose(result.wave / result.projslit, result.resolving_power)

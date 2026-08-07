@@ -34,8 +34,11 @@ def test_metadata_is_prefixed_per_side(tmp_path):
     assert "b_readno" in table.meta
     assert "r_readno" in table.meta
     assert table.meta["r_readno"] / table.meta["b_readno"] == pytest.approx(3.8 / 3.7)
-    assert table.meta["b_R"] == 4254.0
-    assert table.meta["r_R"] == 3164.0
+    assert table.meta["b_Rpix"] == 4254.0
+    assert table.meta["r_Rpix"] == 3164.0
+    # R is delivered: the per-pixel figure over the slit projection in pixels.
+    assert table.meta["b_R"] == pytest.approx(4254.0 / table.meta["b_cols"])
+    assert table.meta["r_R"] == pytest.approx(3164.0 / table.meta["r_cols"])
     assert all(len(key) <= 8 for key in table.meta)
 
 

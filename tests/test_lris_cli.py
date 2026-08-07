@@ -30,8 +30,11 @@ def test_metadata_is_prefixed_per_side(tmp_path):
     assert main(["--quiet", "--output", str(path)]) == 0
     table = Table.read(path)
     assert table.meta["r_readno"] / table.meta["b_readno"] == pytest.approx(4.5 / 3.7)
-    assert table.meta["b_R"] == 7500.0
-    assert table.meta["r_R"] == 11820.0
+    assert table.meta["b_Rpix"] == 7500.0
+    assert table.meta["r_Rpix"] == 11820.0
+    # R is delivered: a 1 arcsec slit spans 7.44 pixels, so about 1000 and 1600.
+    assert table.meta["b_R"] == pytest.approx(1008.0, abs=1.0)
+    assert table.meta["r_R"] == pytest.approx(1589.0, abs=1.0)
     assert all(len(key) <= 8 for key in table.meta)
 
 

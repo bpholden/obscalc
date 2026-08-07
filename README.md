@@ -70,7 +70,7 @@ BINNING  = 1x1 (spatial x dispersion)
 TEMPLATE = G5V_pickles_27.fits at z = 0
 FILTER   = Buser_V.dat
 
-3742-7692 A: R = 282161, 2.00 pixels across the slit, 9 rows extracted, 1.11 sky rows per object row
+3742-7692 A: R = 141080, 2.00 pixels across the slit, 9 rows extracted, 1.11 sky rows per object row
   slit transmission 0.3171, read noise 11.25 e-, dark 10.95 e-
   median S/N 35.29 per binned pixel, 49.90 per resolution element
 
@@ -89,6 +89,21 @@ Echelle orders 60-124 across the range; free spectral range 30.3-129.4 A
 legacy `CARD value` parameter files. Results tables are written through
 `astropy.io.ascii` or `astropy.io.fits`, chosen by the output extension.
 
+**The reported `R` is the resolving power actually delivered**, λ/FWHM, and it
+depends on the slit. Every `x_init*.pro` stores an `R` tagged
+`; 1 pixel (native) dispersion` — 282161 for the APF, 22727 for DEIMOS 1200G —
+which is λ divided by the Ångströms per *native pixel*, a reciprocal dispersion
+rather than a resolution. A slit spans several pixels, so quoting that number
+overstates the resolution by the number of pixels it spans: 2.5 for a 1″ APF
+decker, 6 for DEIMOS, 7.4 for LRIS.
+
+`S2NResult.resolving_power` divides by `columns`, the projected slit width in
+pixels the engine already computes, giving λ/`projslit`. Both numbers appear in
+the results table: `R` is the delivered one, `Rpix` the per-native-pixel figure
+the IDL held. Note that `columns` has a floor of two pixels, from
+`columns = 2. > (...)` in `spec_calcs2n.pro`, so a slit narrower than two pixels
+is reported at the two-pixel sampling limit rather than higher.
+
 ### Kast
 
 ```sh
@@ -99,11 +114,11 @@ obscalc-kast --mag 18 --mtype 2 --exptime 1800 \
 Both sides are reported separately, then together:
 
 ```
-3150-5490 A [blue]: R = 4254, 3.47 pixels across the slit, 11 rows extracted, ...
+3150-5490 A [blue]: R = 1226, 3.47 pixels across the slit, 11 rows extracted, ...
   slit transmission 0.6447, read noise 12.27 e-, dark 0.01 e-
   median S/N 23.34 per binned pixel, 43.47 per resolution element
 
-5500-8000 A [red]: R = 3164, 3.47 pixels across the slit, 11 rows extracted, ...
+5500-8000 A [red]: R = 912, 3.47 pixels across the slit, 11 rows extracted, ...
   slit transmission 0.6447, read noise 12.60 e-, dark 0.01 e-
   median S/N 27.70 per binned pixel, 51.60 per resolution element
 
@@ -150,7 +165,7 @@ obscalc-hires --mag 15 --mtype 2 --exptime 1800 --decker C5 --epoch new
 ```
 
 ```
-3000-9500 A: R = 216000, 6.40 pixels across the slit, 18 rows extracted, ...
+3000-9500 A: R = 33748, 6.40 pixels across the slit, 18 rows extracted, ...
   slit transmission 0.8421, read noise 6.60 e-, dark 9.00 e-
   median S/N 23.55 per binned pixel, 59.57 per resolution element
 
@@ -182,15 +197,21 @@ which is what `hires_thruput.pro` does and what makes it unlike the others:
 `--decker` is a name (`B2 B5 C1 C5 D1 D3 E4 E5`), as for APF, not a width in
 arcsec as for Kast. `--epoch` selects the detector:
 
-| Epoch | Pixels | R | Read noise | Dark |
-| --- | --- | --- | --- | --- |
-| `old` | 24 µm | 135000 | 4.3 e⁻ | 2.0 e⁻/px/hr |
-| `new` (default) | 15 µm | 216000 | 2.2 e⁻ | 1.0 e⁻/px/hr |
+| Epoch | Pixels | `Rpix` | Slit in pixels | Delivered R | Read noise | Dark |
+| --- | --- | --- | --- | --- | --- | --- |
+| `old` | 24 µm | 135000 | 4.00 | 33748 | 4.3 e⁻ | 2.0 e⁻/px/hr |
+| `new` (default) | 15 µm | 216000 | 6.40 | 33748 | 2.2 e⁻ | 1.0 e⁻/px/hr |
 
-Comparing epochs by per-pixel S/N is misleading. The newer detector has 1.29×
-the throughput, but its smaller pixels raise R and so cover 0.625× the wavelength
-per pixel — a net 11% loss per pixel and a 13% gain per resolution element. The
-default binning is `2x1`, matching `x_inithires.pro`.
+**The delivered resolving power is identical across the two epochs**, and it
+should be: `x_inithires.pro` scales its per-pixel `R` by `24/pixel_size`, but the
+smaller pixels also make the same slit project onto proportionally more of them,
+and the factor 1.6 cancels exactly. Changing the detector changes sampling, not
+resolution — what sets the resolution is the slit and the grating.
+
+Comparing epochs by per-pixel S/N is misleading for the same reason. The newer
+detector has 1.29× the throughput, but covers 0.625× the wavelength per pixel — a
+net 11% loss per pixel and a 13% gain per resolution element. The default binning
+is `2x1`, matching `x_inithires.pro`.
 
 `x_inithires.pro` defines a third configuration, `flg = 3`, for MTHR on the TMT.
 That is a different instrument on a different telescope with its own throughput
@@ -204,7 +225,7 @@ obscalc-deimos --mag 22 --mtype 2 --exptime 1200 \
 ```
 
 ```
-4000-10000 A: R = 22727, 6.02 pixels across the slit, 13 rows extracted, ...
+4000-10000 A: R = 3775, 6.02 pixels across the slit, 13 rows extracted, ...
   slit transmission 0.7945, read noise 9.37 e-, dark 17.33 e-
   median S/N 1.57 per binned pixel, 3.85 per resolution element
 
@@ -260,11 +281,11 @@ obscalc-lris --mag 20 --mtype 2 --exptime 3600 \
 ```
 
 ```
-3500-5590 A [blue]: R = 7500, 7.44 pixels across the slit, 23 rows extracted, ...
+3500-5590 A [blue]: R = 1008, 7.44 pixels across the slit, 23 rows extracted, ...
   slit transmission 0.6447, read noise 17.74 e-, dark 0.02 e-
   median S/N 39.35 per binned pixel, 107.31 per resolution element
 
-5600-10000 A [red]: R = 11820, 7.44 pixels across the slit, 23 rows extracted, ...
+5600-10000 A [red]: R = 1589, 7.44 pixels across the slit, 23 rows extracted, ...
   slit transmission 0.6447, read noise 21.58 e-, dark 0.02 e-
   median S/N 16.07 per binned pixel, 43.83 per resolution element
 

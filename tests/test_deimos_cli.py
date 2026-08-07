@@ -47,10 +47,11 @@ def test_an_unmeasured_tilt_is_rejected_by_argparse(capsys):
 
 
 def test_resolving_power_differs_between_gratings(capsys):
+    """Delivered R, so 6.02x smaller than the per-native-pixel figure."""
     main(["--grating", "600Z"])
-    assert "R = 11538" in capsys.readouterr().out
+    assert "R = 1917" in capsys.readouterr().out  # 11538 / 6.02
     main(["--grating", "1200G"])
-    assert "R = 22727" in capsys.readouterr().out
+    assert "R = 3775" in capsys.readouterr().out  # 22727 / 6.02
 
 
 def test_the_tilt_changes_which_file_is_used(capsys):
@@ -96,7 +97,10 @@ def test_metadata_is_unprefixed_for_a_single_detector(tmp_path):
     path = tmp_path / "out.ecsv"
     assert main(["--quiet", "--output", str(path)]) == 0
     meta = Table.read(path).meta
-    assert meta["R"] == pytest.approx(22727.3)
+    # R is delivered, Rpix per native pixel: a 1 arcsec slit spans 6.02 pixels.
+    assert meta["Rpix"] == pytest.approx(22727.3)
+    assert meta["R"] == pytest.approx(22727.3 / meta["cols"])
+    assert meta["R"] == pytest.approx(3775.0, abs=1.0)
     assert "b_R" not in meta
 
 

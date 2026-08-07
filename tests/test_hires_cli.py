@@ -46,11 +46,22 @@ def test_decker_is_a_name_not_a_width(capsys):
     assert "invalid choice" in capsys.readouterr().err
 
 
-def test_resolving_power_differs_between_epochs(capsys):
+def test_the_delivered_resolving_power_is_the_same_for_both_epochs(capsys):
+    """Changing the detector changes sampling, not resolution.
+
+    x_inithires.pro scales R with 24/pixel_size, so the 15 micron detector has
+    216000 against 135000 per native pixel -- a factor 1.6.  But its smaller
+    pixels also make the same slit project onto 1.6x as many of them, 6.40
+    against 4.00, and the two cancel exactly.  What sets the delivered resolving
+    power is the slit and the grating, which neither epoch changes.
+    """
     main(["--epoch", "old"])
-    assert "R = 135000" in capsys.readouterr().out
+    old = capsys.readouterr().out
     main(["--epoch", "new"])
-    assert "R = 216000" in capsys.readouterr().out
+    new = capsys.readouterr().out
+
+    assert "R = 33748" in old and "4.00 pixels across the slit" in old
+    assert "R = 33748" in new and "6.40 pixels across the slit" in new
 
 
 def test_the_blaze_is_on_by_default_and_no_blaze_is_stated(capsys):
@@ -98,7 +109,8 @@ def test_metadata_is_unprefixed_for_a_single_detector(tmp_path):
     path = tmp_path / "out.ecsv"
     assert main(["--quiet", "--output", str(path)]) == 0
     meta = Table.read(path).meta
-    assert meta["R"] == 216000.0
+    assert meta["Rpix"] == 216000.0
+    assert meta["R"] == pytest.approx(216000.0 / meta["cols"])
     assert meta["binr"] == 2 and meta["binc"] == 1
     assert "b_R" not in meta
 

@@ -111,5 +111,7 @@ def test_results_table_carries_the_scalars_in_metadata():
     single = result.sides[0][2]
     assert table.meta["nsky"] == pytest.approx(single.nsky)
     assert table.meta["readno"] == pytest.approx(single.noise)
-    assert table.meta["R"] == pytest.approx(instr.R)
+    # R is the delivered resolving power; Rpix the per-native-pixel figure.
+    assert table.meta["Rpix"] == pytest.approx(instr.R)
+    assert table.meta["R"] == pytest.approx(instr.R / single.columns)
     assert len(table) == wave.size

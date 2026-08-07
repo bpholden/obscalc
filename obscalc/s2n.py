@@ -100,7 +100,24 @@ class S2NResult:
     mtype: int  # magnitude system actually used
     binc: int  # dispersion binning used
     binr: int  # spatial binning used
-    R: float  # resolving power of the disperser used
+    #: ``instr.R``: lambda / (Angstroms per *native pixel*), which every
+    #: ``x_init*.pro`` tags "1 pixel (native) dispersion".  This is a reciprocal
+    #: dispersion, not a resolving power -- use :attr:`resolving_power`.
+    R: float
+
+    @property
+    def resolving_power(self):
+        """Resolving power actually delivered, ``lambda / FWHM``.
+
+        The slit projects onto :attr:`columns` pixels, so a resolution element is
+        that many pixels wide and the delivered resolving power is :attr:`R`
+        divided by it.  Equivalently ``wave / projslit``, which is how the engine
+        already forms the projected slit width in Angstroms.
+
+        The distinction is large: a 1 arcsec slit spans 6-7 pixels on LRIS and
+        DEIMOS, so quoting ``R`` would overstate the resolution by that factor.
+        """
+        return self.R / self.columns
 
     @property
     def sn_per_resolution_element(self):

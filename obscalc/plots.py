@@ -95,11 +95,14 @@ def _default_title(result, instr, obs):
     parts.append(f"{obs.exptime:g} s")
     parts.append(f"airmass {obs.airmass:g}")
     parts.append(f"seeing {obs.seeing:g}\"")
-    if len(result.sides) > 1:
-        dispersers = " + ".join(
-            f"{name} R={side.R:.0f}" for name, _, side in result.sides
+    # Delivered resolving power, R/columns -- see S2NResult.resolving_power.
+    # Shown for a single detector too, not just a dichroic pair.
+    parts.append(
+        " + ".join(
+            f"{name} R={side.resolving_power:.0f}".lstrip()
+            for name, _, side in result.sides
         )
-        parts.append(dispersers)
+    )
     return "  ".join(parts)
 
 
