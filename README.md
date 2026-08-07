@@ -744,6 +744,14 @@ not agree anyway. Validation is therefore:
   results; the only rejections are genuine coverage failures.
 - Scaling checks: S/N as √t when source dominated, counts as 10^(0.4Δm), signal
   falling with airmass and with seeing.
+- **Against real data, once.** The delivered resolving power reported for the APF
+  `N` decker is 141080, against 120000–140000 measured on real APF spectra
+  (B. Holden). This is the only check here made against the instrument rather
+  than against the IDL, and it exercises the pixel scale, the slit projection,
+  `S2NResult.resolving_power` and the two-pixel floor together. The floor is what
+  makes it come out: a 0.5″ decker spans 1.27 pixels, so without
+  `columns = 2. > (...)` the report would be 282161/1.27 ≈ 221000, well above
+  anything measured.
 
 What this does **not** establish is that any IDL expression was read correctly.
 The highest-risk area is `slit.py`, a 199×199 sum with three interacting
