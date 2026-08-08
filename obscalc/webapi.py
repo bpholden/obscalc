@@ -70,6 +70,7 @@ def empty_payload():
     return {
         "wave": [],
         "s2n": [],
+        "s2nperres": [],
         "obj": [],
         "objperwavesec": [],
         "noise": [],
@@ -77,6 +78,7 @@ def empty_payload():
         "cts": [],
         "js2n": [],
         "jobj": [],
+        "js2nperres": [],
         "jnoise": [],
         "jsky": [],
         "com": "",
@@ -207,6 +209,8 @@ def calculate(params, wvmn=None, wvmx=None, dwv=10.0):
         # Read noise is per detector, so this is piecewise constant across the
         # dichroic split rather than a single value.
         ("noise", result.noise),
+        ("s2nperres", result.sn_per_resolution_element),
+
     ):
         payload[key] = _pairs(result.wave, series)
         payload["j" + key] = [float(v) for v in series]
