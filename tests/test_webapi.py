@@ -361,9 +361,16 @@ def test_hires_epoch_can_be_selected():
 
 
 def test_hires_blaze_flag_lowers_the_counts():
-    plain = np.array(calculate(HIRES_REQUEST)["jobj"])
-    blazed = np.array(calculate({**HIRES_REQUEST, "blaze": "true"})["jobj"])
+    plain = np.array(calculate({**HIRES_REQUEST, "blaze": "false"})["jobj"])
+    blazed = np.array(calculate(HIRES_REQUEST)["jobj"])
     assert np.median(blazed) < np.median(plain)
+
+
+def test_hires_blazes_by_default_like_the_apf():
+    """webapi used to leave HIRES unblazed while the CLI blazed it."""
+    default = np.array(calculate(HIRES_REQUEST)["jobj"])
+    asked = np.array(calculate({**HIRES_REQUEST, "blaze": "true"})["jobj"])
+    assert np.allclose(default, asked)
 
 
 def test_hires_read_noise_is_a_single_value():

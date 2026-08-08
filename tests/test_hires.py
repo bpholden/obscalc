@@ -342,12 +342,22 @@ def test_backend_rejects_an_unknown_epoch():
 
 
 def test_backend_accepts_a_blaze_flag():
+    """The backend blazes unless told not to, as the APF backend does."""
     backend = HiresBackend()
     values = {"bins": 2, "bind": 1, "slitwidth": "C5"}
-    _, plain = backend.sides(GRID, values)
-    _, blazed = backend.sides(GRID, {**values, "blaze": "true"})
+    _, plain = backend.sides(GRID, {**values, "blaze": "false"})
+    _, blazed = backend.sides(GRID, values)
     assert np.all(blazed[0].thru <= plain[0].thru + 1e-12)
     assert np.median(blazed[0].thru) < np.median(plain[0].thru)
+
+
+def test_backend_blazes_by_default():
+    """A request that says nothing about the blaze gets it, matching the CLI."""
+    backend = HiresBackend()
+    values = {"bins": 2, "bind": 1, "slitwidth": "C5"}
+    _, default = backend.sides(GRID, values)
+    _, asked = backend.sides(GRID, {**values, "blaze": "true"})
+    assert np.allclose(default[0].thru, asked[0].thru)
 
 
 def test_backend_has_no_instrument_specific_extras():

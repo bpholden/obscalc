@@ -296,6 +296,13 @@ class HiresBackend(Backend):
             bind=values["bind"],
             str_tel=tel,
         )
-        blaze = str(values.get("blaze", "")).strip().lower() in ("1", "true", "yes")
+        # On unless asked otherwise, as for the APF and as ``hires_thruput``
+        # itself defaults.  Pass blaze=false for ``hires_calcs2n.pro``'s
+        # per-order peak throughput.
+        blaze = str(values.get("blaze", "true")).strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        )
         index = np.arange(np.size(wave))
         return tel, [Side("", instr, index, hires_thruput(wave, instr, blaze=blaze))]
