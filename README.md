@@ -2,7 +2,8 @@
 
 Signal-to-noise calculator for slit spectrographs. A Python port of the exposure
 time calculator in [xidl](https://www.ucolick.org/~xavier/IDL/), whose entry
-point was `Obs/S2N/spec_calcs2n.pro`.
+point was `Obs/S2N/spec_calcs2n.pro`. Note, this was mostly done by an LLM
+transliterating the IDL. As such, there are the usual LLM pecularities. 
 
 Supported instruments:
 
@@ -18,10 +19,9 @@ The two echelles share `echelle.py`: order geometry, the blaze function, and
 per-order throughput lookup. Both apply the blaze by default; `--no-blaze`
 reproduces the IDL on either.
 
-Kast and LRIS are both double spectrographs and are built the same way, but the
-throughput lookup differs: Kast's dichroic does not select a file, LRIS's does.
+Kast and LRIS are both double spectrographs and are built the same way.
 
-The engine is generic; everything named `apf_*` or `kast_*` is not. `s2n.py`,
+The engine is generic; everything named `apf_*` or `kast_*`, for example, is not. `s2n.py`,
 `slit.py`, `photometry.py`, `idl_compat.py`, `structures.py`, `cli_common.py`,
 `plots.py` and `webapi.py` know nothing about any particular instrument. Three
 registries hold what is instrument specific: `atmosphere.EXTINCTION` and
@@ -49,8 +49,11 @@ pip install -e '.[test]'   # to run the tests
 python -m pytest
 ```
 
-The calibration data, ten filter curves and twelve spectral templates ship with
-the package, so nothing external is required.
+The calibration data, ten filter curves (five SDSS, four Johnson-like, and Gaia G),
+sky models, extinction curves for both sites, throoughput curves, and 
+the 27 spectral templates ship with the package, so nothing external is required.
+Note, for historical reasons, the Maunakea extinction curve is hand
+tabulated in the Python source.
 
 ## Command line
 
@@ -417,12 +420,9 @@ it builds the same `Side` objects you would assemble from `<name>_thruput` and
 
 For the dictionary the web forms expect, use `obscalc.webapi.calculate` instead.
 
-## Replacing the IDL in the expcalc web ETC
+## expcalc web ETC
 
-`expcalc` currently builds an IDL command string, `Popen`s `idl_wrapper`, and
-recovers the numbers by regexp-matching the wrapper's printed output
-(`s2n_param.py`). `obscalc.webapi.calculate` returns the same dictionary
-`parse_return` produced, so that path becomes a direct call:
+`expcalc` uses `obscalc.webapi.calculate` rwhcih eturns a dictionary:
 
 ```python
 from obscalc.webapi import calculate
@@ -432,15 +432,13 @@ def gen_inst_s2n():
     return calculate(request.params)
 ```
 
-No subprocess, no `env-for-xidl`, no screen scraping. Parameter validation moves
-into `webapi._coerce` for the parameters every spectrograph shares, and into the
-backend for the rest; both report problems in the same `msg` field the existing
-forms already display.
+Parameter validation moves into `webapi._coerce` for the parameters 
+every spectrograph shares, and into the backend for the rest; both 
+report problems in the `msg` field which is used by `expcalc`.
 
 `calculate` dispatches on `inst`, defaulting to `apf`, and serves whatever is
 registered in `instruments.BACKENDS` — `apf`, `deimos`, `hires`, `kast` and
-`lris`. **That is every instrument the ETC still serves**, so `idl_wrapper` and
-`env-for-xidl` can be retired. An unrecognised name is **refused** with a message
+`lris`. An unrecognised name is **refused** with a message
 rather than silently answered with APF numbers:
 
 ```python
@@ -454,7 +452,7 @@ that posts a `dichroic` or `grating` will not fail validation. Note that
 HIRES, a width in arcsec for kast, lris and deimos — which is why it is the
 backend's business and not `webapi`'s.
 
-## Differences from the IDL
+## Differences from the original IDL
 
 The port fixes the defects below rather than reproducing them, and calculates the
 APF on a newer throughput measurement than the IDL had, so results will not match
@@ -515,23 +513,11 @@ Rather than rescale detected counts per configuration, the throughput is undone
 to recover a true surface brightness, which is what the engine wants and what any
 instrument can then use. See below for how well that works.
 
-**The APF throughput measurement is newer than the one the IDL used.**
-`apf_thruput.pro:52` hardcodes `sens_APF_nov2016.fits`, with commented-out paths
-back to may2013. The default here is `sens_APF_aug2022.fits`, which is not in the
-xidl tree. The APF has lost throughput over those six years — median efficiency
-14.0% against 16.7% — so every APF number is correspondingly lower than the IDL
-would give, before any of the corrections below. Both files are bundled; pass
-`sens_file="sens_APF_nov2016.fits"` to `apf_thruput` to compare epochs.
-
 **The APF throughput was treated as a smooth curve when it is per-order.** The
 63 wavelengths in `sens_APF_aug2022.fits` are the 63 consecutive echelle order
 centres, orders 62 to 124, matching `MLAMBDA/m` to better than 0.006 Å — as are
 nov2016's, over the same 3757.9–7515.8 Å. It is one measurement per order, taken
-at the blaze peak — the same structure as the HIRES table. `apf_thruput.pro`
-interpolated it *at the wavelength*, which mixes adjacent orders, and applied no
-blaze, so it reported every order's peak everywhere. `apf_calcs2n.pro` computed
-the order number, blaze centre and free spectral range (lines 113–121) and then
-discarded all three. Two corrections follow:
+at the blaze peak — the same structure as the HIRES table. 
 
 - **Per-order lookup**, unconditional. Each wavelength takes its own order's
   value. Median effect 0.8%, but up to **15%** around 3800–4300 Å where the
@@ -539,25 +525,6 @@ discarded all three. Two corrections follow:
   3851 Å, giving 0.058 rather than the interpolated 0.051.
 - **The blaze**, on by default as for HIRES. Median throughput ×0.41, median S/N
   ×0.49 for a V=9 G star.
-
-There is no option to restore the old interpolation; it was simply wrong.
-`--no-blaze` gives the per-order peak, which is the closest thing to the IDL.
-
-**This moves the APF's RV numbers, and in the right direction.**
-`apf_extras.i2counts` is the median object count over 5000–6200 Å, so it falls
-with the blaze applied — for a V=9 G star in 600 s: 5249 → 2320 counts, exposure
-meter 1.70e8 → 7.49e7, and **RV precision 2.98 → 5.00 m/s**.
-
-Against what the IDL reported — nov2016, no blaze, 2.67 m/s — the total move to
-5.00 m/s is about four fifths the blaze and one fifth the newer throughput file
-(nov2016 with the blaze gives 4.48 m/s).
-
-That is the better estimate. `A = 4.47`, `B = −1.58` come from empirical
-measurements on real APF spectra, which carry the blaze, so blaze-inclusive counts
-are the input the relation was calibrated against. The old un-blazed ETC fed it
-peak-of-order counts and so reported a precision better than the instrument
-achieves. Anything comparing against historical ETC output should expect the
-newer, larger — and more honest — figure.
 
 **DEIMOS's default grating did not exist, and its throughput was extrapolated.**
 Two problems in one instrument:
@@ -640,33 +607,6 @@ The two echelles are the exception, and not really one: APF and HIRES hold the
 end value for orders outside their tables, because there the table is indexed by
 *order* rather than by wavelength and the question is which order a wavelength
 belongs to, not whether a wavelength was measured.
-
-**LRIS's sky branch in `spec_calcs2n.pro` was unreachable.** The `'LRIS'` case
-selecting `flg_sky = 2` — the `mkea_sky_LRIS_both.fits` model — is nested inside
-the `'KeckII'` branch, but `x_initlris.pro` sets the telescope name to `'KeckI'`.
-So LRIS took the `'KeckI'` line instead, `maunakea_sky(wave, phase, /NOEMPIR)`,
-and the `NOEMPIRI`/`NOEMPIRIC` typo described above turned that back into the
-empirical default — the DEIMOS 600 model, which starts at 5001 Å and so covered
-none of the blue channel. Here LRIS gets `combined`, whose blue half is the
-recovered LRIS measurement, so the sky is now defined across the whole range the
-instrument sees.
-
-**LRIS's default configuration did not exist**, the same way DEIMOS's did not.
-Defaults reach the engine through the wrapper, not through `x_initlris.pro`:
-`lris_calcs2n_wrapper.pro` overwrites the instrument structure after
-`x_initlris` has filled it in, so `x_initlris`'s own disperser defaults never
-survive. What the wrapper writes is `state.str_instr[0].grating = 'G2'` — a
-*Kast* grism, which `lris_thruput.pro` has no case for — so an unqualified run
-hit its `else: stop`. Worse, `x_initlris.pro` had already set the blue resolving
-power from its own `B600` default, so even had the throughput lookup survived, R
-and the throughput would have described different dispersers.
-
-That block is a verbatim copy of `kast_calcs2n_wrapper.pro` lines 64–68, `G2` and
-all — which is also why Kast's default grism here is `G2` rather than the `G1`
-`x_initkast.pro` names. Since `G2` is Kast's 600-line blue grism, `B600` is the
-LRIS counterpart of what the copied line was reaching for, and it is what
-`x_initlris.pro` would have set had the wrapper left it alone. Both readings
-agree on `B600`, which is the default here.
 
 **A `-99` from `single_spec2mag` propagated silently.** A template that does not
 cover its normalising filter now raises `TemplateFilterMismatch` instead of
@@ -760,37 +700,6 @@ run through the web ETC uses the 1×1 default. `webapi.calculate` takes
 `binning` directly and honours it, which means it will not reproduce the current
 web output for any binning other than 1×1.
 
-## Validation
-
-There is no IDL or GDL on the development machine, so **no end-to-end comparison
-against the original was possible**, and the bug fixes above mean the two would
-not agree anyway. Validation is therefore:
-
-- Leaf functions checked against the literal tables in the IDL source
-  (`x_fluxjohnson`, `mtham_trans`, the PSF profile, the AB zero point).
-- Vega through `Buser_V.dat` gives AB −0.0102, and a Vega-system round trip
-  returns 0 to 1e-9 — an independent check on `single_spec2mag`.
-- Template B−V colours order correctly from O5V through G5V to M5V.
-- 168 configurations (7 deckers × 4 binnings × 3 seeings × 2 magnitude systems)
-  and 192 template/filter pairs produce finite, positive, correctly ordered
-  results; the only rejections are genuine coverage failures.
-- Scaling checks: S/N as √t when source dominated, counts as 10^(0.4Δm), signal
-  falling with airmass and with seeing.
-- **Against real data, once.** The delivered resolving power reported for the APF
-  `N` decker is 141080, against 120000–140000 measured on real APF spectra
-  (B. Holden). This is the only check here made against the instrument rather
-  than against the IDL, and it exercises the pixel scale, the slit projection,
-  `S2NResult.resolving_power` and the two-pixel floor together. The floor is what
-  makes it come out: a 0.5″ decker spans 1.27 pixels, so without
-  `columns = 2. > (...)` the report would be 282161/1.27 ≈ 221000, well above
-  anything measured.
-
-What this does **not** establish is that any IDL expression was read correctly.
-The highest-risk area is `slit.py`, a 199×199 sum with three interacting
-flux-accounting branches and no closed form to check against. If IDL becomes
-available, dumping `fstrct` over 3742–7700 Å at 10 Å for a few configurations
-would turn this into a real regression test.
-
 ## Data provenance
 
 | Path | Source |
@@ -829,10 +738,6 @@ that the ETC reaches is left on the IDL side.
 ESI has been retired, so obscalc does not support it and will not: the xidl tree
 still carries `esi_thruput.pro` and its companions, but they are deliberately not
 ported.
-
-`apflow` — the low-resolution APF mode in `x_initapflowspec.pro` and
-`apflow_thruput.pro` — is in the xidl tree but is not served by the ETC and is
-not ported.
 
 MTHR (`flg = 3` in `x_inithires.pro`) is on the TMT and would need a new
 telescope and site.
